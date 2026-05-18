@@ -1,0 +1,12 @@
+gt_results
+gt_results_mqt8_500
+gt_results_qt8_11x11
+data
+models
+notebooks
+report
+results
+/**__pycache__**/
+**/**__pycache__**/**
+**/__pycache__/
+benchmarks
