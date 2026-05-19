@@ -238,6 +238,18 @@ def make_combo_filename(combo):
         for i, v in enumerate(combo)
     ])
 
+
+# =========================================================
+# Helper to Find largest intermediate cardinality
+# =========================================================
+def get_max_actual_rows(node):
+    rows = node.get("Actual Rows",0)
+
+    for child in node.get("Plans",[]):
+        rows = max(rows,get_max_actual_rows(child))
+
+    return rows
+
 # =========================================================
 # Create output directories
 # =========================================================
@@ -818,9 +830,10 @@ for combo in all_combinations:
     # optimizer-visible selectivity
     # ----------------------------------------
 
-    effective_rows = max(int(root_rows or 0),int(count_rows or 0))
+    # largest intermediate cardinality
+    max_actual_rows = get_max_actual_rows(plan)
 
-    selectivity2 = (effective_rows/max(int(total_relation_rows),1))
+    selectivity2 = (max_actual_rows/max(int(total_relation_rows),1))
     selectivity2_percent = (selectivity2*100)
 
     # =====================================================
