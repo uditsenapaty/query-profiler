@@ -786,16 +786,24 @@ for combo in all_combinations:
     # =====================================================
     # Selectivity
     # =====================================================
+    # ----------------------------------------
+    # selectivity1
+    # actual output selectivity
+    # ----------------------------------------
 
-    selectivity = (
-        count_rows
-        /
-        max(total_relation_rows,1)
-    )
+    selectivity1 = (count_rows/max(total_relation_rows,1))
+    selectivity1_percent = (selectivity1*100)
 
-    selectivity_percent = (
-        selectivity * 100
-    )
+    # ----------------------------------------
+    # selectivity2
+    # optimizer-visible selectivity
+    # ----------------------------------------
+
+    effective_rows = max(root_rows,count_rows)
+
+    selectivity2 = (effective_rows/max(total_relation_rows,1))
+    selectivity2_percent = (selectivity2*100)
+
 
     runtimes = [r["runtime"] for r in temp_runs]
     runtime_mean = np.mean(runtimes)
@@ -900,8 +908,10 @@ for combo in all_combinations:
             "plan_signature": run_plan_signature,
             "plan_hash": run_plan_hash,
             "full_explain": run["explain"],
-            "selectivity": selectivity,
-            "selectivity_percent": selectivity_percent,
+            "selectivity1": selectivity1,
+            "selectivity1_percent": selectivity1_percent,
+            "selectivity2": selectivity2,
+            "selectivity2_percent": selectivity2_percent,
         })
 
     trace_path = TRACES_DIR / f"{combo_filename}_trace.json"
@@ -951,8 +961,10 @@ for combo in all_combinations:
         rel_plan_json_path,
         rel_plan_tree_path,
         rel_trace_path,
-        selectivity,
-        selectivity_percent,
+        selectivity1,
+        selectivity1_percent,
+        selectivity2,
+        selectivity2_percent,
     ])
 
     print(f"Combo={combo} | runtime={runtime_mean:.4f} ms | plan_hash={plan_hash[:8]}... | plan={root_node}")
@@ -995,8 +1007,10 @@ columns = [f"x{i+1}" for i in range(len(param_columns))] + [
     "plan_json_path",
     "plan_tree_path",
     "trace_path",
-    "selectivity",
-    "selectivity_percent",
+    "selectivity1",
+    "selectivity1_percent",
+    "selectivity2",
+    "selectivity2_percent",
 ]
 
 df = pd.DataFrame(rows, columns=columns)

@@ -107,24 +107,19 @@ for qcol in qcols:
         ]=row[pcol]
 
         # ---------------------------------
-        # Selectivity
+        # Selectivities
         # ---------------------------------
 
-        if "selectivity" in row:
+        for c in [
+            "selectivity1",
+            "selectivity1_percent",
 
-            instance[
-                "selectivity"
-            ] = row[
-                "selectivity"
-            ]
+            "selectivity2",
+            "selectivity2_percent"
+        ]:
 
-        if "selectivity_percent" in row:
-
-            instance[
-                "selectivity_percent"
-            ] = row[
-                "selectivity_percent"
-            ]
+            if c in row:
+                instance[c] = row[c]
 
         # ---------------------------------
         # useful runtime/cardinality info
