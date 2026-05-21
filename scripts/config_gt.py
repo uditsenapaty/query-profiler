@@ -8,7 +8,7 @@ USER = "postgres"
 HOST = "localhost"
 
 # Directory layout for ground truth artifacts
-RESULTS_DIR = Path("gt_results_sf1_qt8_10x10_m0")
+RESULTS_DIR = Path("gt_results_sf1_qt8_10x10_m1")
 PLANS_DIR = RESULTS_DIR / "plans"
 PLAN_TREES_DIR = RESULTS_DIR / "plan_trees"
 TRACES_DIR = RESULTS_DIR / "traces"
@@ -34,7 +34,7 @@ MEASURED_ROUNDS = list(range(WARMUP_ROUND + 1, TOTAL_ROUNDS + 1))
 #
 # Used by build_gt.py to pick which sampler module to call.
 
-SAMPLING_METHOD = "normal"
+SAMPLING_METHOD = "selectivity_m1"
 
 # =========================================================
 # Per-method resolutions

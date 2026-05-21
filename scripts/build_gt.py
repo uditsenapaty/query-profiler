@@ -604,6 +604,11 @@ for i, col in enumerate(param_columns):
 # =========================================================
 all_combinations = list(product(*param_values_dict.values()))
 
+shape=[
+    len(param_values_dict[p])
+    for p in param_columns
+]
+
 if len(all_combinations) > MAX_COMBINATIONS:
     raise RuntimeError(
         f"Too many combinations: {len(all_combinations)}"
@@ -661,24 +666,26 @@ def strip_order_by(sql_query):
 
     return "".join(output).strip()
 
-def get_query_rowcount(conn, query):
+def get_filtered_cardinality(conn, query):
 
     query_no_order = strip_order_by(query)
     query_no_order = query_no_order.rstrip().rstrip(";")
 
     wrapped = f"""
-    SELECT COUNT(*)
-    FROM (
-        {query_no_order}
-    ) q
+    EXPLAIN (ANALYZE, FORMAT JSON)
+    {query_no_order}
     """
 
     cur = conn.cursor()
     cur.execute(wrapped)
-    count = cur.fetchone()[0]
+
+    explain = cur.fetchone()[0][0]
+
     cur.close()
 
-    return count
+    plan = explain["Plan"]
+
+    return get_max_actual_rows(plan)
 
 # =========================================================
 # Precompute exact query output row counts
@@ -696,7 +703,7 @@ for combo in all_combinations:
 
     combo_queries[combo] = query_to_run
 
-    combo_row_counts[combo] = get_query_rowcount(
+    combo_row_counts[combo] = get_filtered_cardinality(
         conn,
         query_to_run
     )
@@ -781,29 +788,138 @@ for round_id in range(TOTAL_ROUNDS):
 
 print("\nFinished precomputing row counts")
 
+
+# =========================================================
+# Compute global max cardinality
+# =========================================================
+
+max_count = max(
+    combo_row_counts.values()
+)
+
+print()
+print("=================================================")
+print("SELECTIVITY NORMALIZATION")
+print("=================================================")
+
+print(
+    f"Max output cardinality: "
+    f"{max_count:,}"
+)
+
+print("=================================================")
+print()
+
+
+# =========================================================
+# Precompute selectivity lookup
+# =========================================================
+
+axis_selectivities = {}
+
+for param in param_columns:
+
+    resolution = PARAM_RESOLUTIONS.get(
+        param,
+        DEFAULT_RESOLUTION
+    )
+
+    if SAMPLING_METHOD.startswith(
+        "selectivity"
+    ):
+        axis_selectivities[param] = (
+            sampler.selectivities(
+                resolution
+            )
+        )
+    else:
+        axis_selectivities[param] = None
+
+
 # =========================================================
 # Build rows for DataFrame
 # =========================================================
-rows = []
+
+all_intermediate_rows=[]
 
 for combo in all_combinations:
-    temp_runs = all_temp_runs[combo]
 
-    if len(temp_runs) == 0:
-        print(f"Skipping failed combo: {combo}")
+    temp_runs=all_temp_runs[combo]
+
+    if len(temp_runs)==0:
         continue
 
-    count_rows = combo_row_counts[combo]
+    explain_data=temp_runs[0]["explain"]
+    plan=explain_data["Plan"]
+
+    all_intermediate_rows.append(
+        get_max_actual_rows(plan)
+    )
+
+max_filtered_cardinality=max(combo_row_counts.values())
+
+rows=[]
+
+for combo_idx,combo in enumerate(all_combinations):
+
+    temp_runs=all_temp_runs[combo]
+
+    if len(temp_runs)==0:
+
+        print(
+            f"Skipping failed combo:{combo}"
+        )
+        continue
 
 
-    runtimes = [r["runtime"] for r in temp_runs]
-    runtime_mean = np.mean(runtimes)
-    runtime_std = np.std(runtimes)
+    runtimes=[
+        r["runtime"]
+        for r in temp_runs
+    ]
 
-    best_run = min(temp_runs, key=lambda r: abs(r["runtime"] - runtime_mean))
-    explain_data = best_run["explain"]
+    runtime_mean=np.mean(
+        runtimes
+    )
 
-    plan = explain_data["Plan"]
+    runtime_std=np.std(
+        runtimes
+    )
+
+
+    best_run=min(
+        temp_runs,
+        key=lambda r:abs(
+            r["runtime"]
+            -runtime_mean
+        )
+    )
+
+    explain_data=best_run["explain"]
+
+    plan=explain_data["Plan"]
+
+
+    # =====================================================
+    # Cardinality for selectivity
+    # =====================================================
+
+    count_rows=combo_row_counts[combo]
+
+    selectivity=(
+        count_rows/
+        max(max_filtered_cardinality,1)
+    )
+
+    selectivity_percent = selectivity * 100
+
+    selectivity_axes = None
+
+
+    selectivity_percent=(
+        selectivity*100
+    )
+
+
     root_node = plan.get("Node Type")
     startup_cost = plan.get("Startup Cost")
     total_cost = plan.get("Total Cost")
@@ -814,27 +930,6 @@ for combo in all_combinations:
         root_rows = 0
     root_rows = int(float(root_rows))
 
-    # =====================================================
-    # Selectivity
-    # =====================================================
-    # ----------------------------------------
-    # selectivity1
-    # actual output selectivity
-    # ----------------------------------------
-
-    selectivity1 = (count_rows/max(total_relation_rows,1))
-    selectivity1_percent = (selectivity1*100)
-
-    # ----------------------------------------
-    # selectivity2
-    # optimizer-visible selectivity
-    # ----------------------------------------
-
-    # largest intermediate cardinality
-    max_actual_rows = get_max_actual_rows(plan)
-
-    selectivity2 = (max_actual_rows/max(int(total_relation_rows),1))
-    selectivity2_percent = (selectivity2*100)
 
     # =====================================================
     # DISTINCT mode: use actual executed cardinality
@@ -925,10 +1020,9 @@ for combo in all_combinations:
             "plan_signature": run_plan_signature,
             "plan_hash": run_plan_hash,
             "full_explain": run["explain"],
-            "selectivity1": selectivity1,
-            "selectivity1_percent": selectivity1_percent,
-            "selectivity2": selectivity2,
-            "selectivity2_percent": selectivity2_percent,
+            "selectivity_axes": selectivity_axes,
+            "selectivity": selectivity,
+            "selectivity_percent": selectivity_percent,
         })
 
     trace_path = TRACES_DIR / f"{combo_filename}_trace.json"
@@ -978,10 +1072,9 @@ for combo in all_combinations:
         rel_plan_json_path,
         rel_plan_tree_path,
         rel_trace_path,
-        selectivity1,
-        selectivity1_percent,
-        selectivity2,
-        selectivity2_percent,
+        selectivity_axes,
+        selectivity,
+        selectivity_percent,
     ])
 
     print(f"Combo={combo} | runtime={runtime_mean:.4f} ms | plan_hash={plan_hash[:8]}... | plan={root_node}")
@@ -1024,10 +1117,9 @@ columns = [f"x{i+1}" for i in range(len(param_columns))] + [
     "plan_json_path",
     "plan_tree_path",
     "trace_path",
-    "selectivity1",
-    "selectivity1_percent",
-    "selectivity2",
-    "selectivity2_percent",
+    "selectivity_axes",
+    "selectivity",
+    "selectivity_percent",
 ]
 
 df = pd.DataFrame(rows, columns=columns)
@@ -1134,8 +1226,6 @@ def compute_axis_qerrors(runtime_grid):
 # N-dimensional plan change analysis
 # =========================================================
 
-shape = [len(param_values_dict[p]) for p in param_columns]
-
 sort_cols = [f"x{i+1}" for i in range(len(param_columns))]
 
 df = (
@@ -1183,6 +1273,73 @@ for axis in range(len(shape)):
         plan_masks[axis]
         .flatten()
     )
+
+# =====================================================
+# Store neighboring coordinates used in qerr
+# =====================================================
+
+xcols = sorted([
+    c for c in df.columns
+    if c.startswith("x")
+])
+
+coords = (
+    df[xcols]
+    .values
+    .reshape(
+        *shape,
+        len(shape)
+    )
+)
+
+for axis in range(len(shape)):
+
+    # object dtype preserves Decimal/date/string
+    neighbor_grid = np.empty(
+        coords.shape,
+        dtype=object
+    )
+
+    neighbor_grid[:] = None
+
+    slicer_curr = [
+        slice(None)
+    ] * len(shape)
+
+    slicer_prev = [
+        slice(None)
+    ] * len(shape)
+
+    slicer_curr[axis] = slice(
+        1,
+        None
+    )
+
+    slicer_prev[axis] = slice(
+        0,
+        -1
+    )
+
+    # copy neighboring coordinate point
+    neighbor_grid[
+        tuple(slicer_curr)
+    ] = coords[
+        tuple(slicer_prev)
+    ]
+
+    # save each coordinate separately
+    for d in range(len(shape)):
+
+        df[
+            f"x{d+1}_neighbor_axis{axis+1}"
+        ] = (
+            neighbor_grid[
+                ...,
+                d
+            ]
+            .flatten()
+        )
+        
 
 total_plan_changes = count_plan_changes_nd(plan_hash_grid)
 
