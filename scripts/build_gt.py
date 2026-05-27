@@ -2,6 +2,37 @@
 # scripts/build_gt.py
 # =========================================================
 
+#===========================================================
+# CLI Arguements helper for running multiple queries
+
+import argparse
+import config_gt
+
+parser = argparse.ArgumentParser()
+
+parser.add_argument(
+    "--query",
+    type=str,
+    required=False,
+)
+
+args = parser.parse_args()
+
+if args.query:
+    config_gt.QUERY = args.query
+
+    config_gt.QUERY_SQL_PATH = (
+        config_gt.Path(__file__).resolve().parent
+        / "automated_script"
+        / "queries"
+        / f"{config_gt.QUERY}.sql"
+    )
+
+    config_gt.MAIN_DIR = config_gt.Path(
+        f"gt_results_{config_gt.SF}_{config_gt.QUERY}"
+    )
+# ===========================================================
+
 import pandas as pd
 import numpy as np
 import time
@@ -765,12 +796,32 @@ for CURRENT_METHOD in METHODS_TO_RUN:
             )
 
         return matches[0], column
+    
+    # =====================================================
+    # Helper to find Methods using target selectivity space
+    # =====================================================
+
+    def method_uses_target_selectivities(method):
+
+        cfg=config_gt.METHOD_CONFIGS[
+            method
+        ]
+
+        sampler_name=cfg[
+            "sampler"
+        ].lower()
+
+        # any sampler based on percentile/selectivity
+        return (
+            "selectivity"
+            in sampler_name
+        )
 
     # =========================================================
     # Helper for Measuring actual selectivities
     # =========================================================
 
-    def get_actual_selectivity(
+    def get_axis_selectivity(
         conn,
         table,
         column,
@@ -804,35 +855,30 @@ for CURRENT_METHOD in METHODS_TO_RUN:
     # Cache DISTINCT column values
     # =========================================================
     distinct_cache = {}
+
     # =========================================================
     # Collect all values for each parameter
     # =========================================================
-    # Selectivity-based methods are defined for 1-D and 2-D
-    # only (matches the Picasso paper). Bail out early if the
-    # template has more parameters.
-    if CURRENT_METHOD in ("m1", "m2"):
-        if len(param_columns) not in (1, 2):
-            raise RuntimeError(
-                f"SAMPLING_METHOD={CURRENT_METHOD} only supports "
-                f"1-D or 2-D templates; got {len(param_columns)} "
-                f"parameters: {param_columns}"
-            )
 
-    param_values_dict = {}
+    param_values_dict={}
 
     actual_axis_selectivities={}
 
+    use_targets=method_uses_target_selectivities(
+        CURRENT_METHOD
+    )
+
     for param in param_columns:
 
-        column_expr = param_to_column[param]
+        column_expr=param_to_column[param]
 
-        real_table, column = resolve_column(
+        real_table,column=resolve_column(
             conn,
             column_expr,
             table_aliases
         )
 
-        resolution = PARAM_RESOLUTIONS.get(
+        resolution=PARAM_RESOLUTIONS.get(
             param,
             DEFAULT_RESOLUTION
         )
@@ -844,24 +890,59 @@ for CURRENT_METHOD in METHODS_TO_RUN:
             resolution
         )
 
-        actual_sels=[]
+        param_values_dict[
+            param
+        ]=values
 
-        for v in values:
 
-            s=get_actual_selectivity(
-                conn,
-                real_table,
-                column,
-                v
+        # ====================================
+        # use sampler targets directly
+        # ====================================
+
+        if use_targets:
+
+            target_sels=(
+                sampler.selectivities(
+                    resolution
+                )
             )
 
-            actual_sels.append(s)
+            if len(target_sels)!=len(values):
 
-        actual_axis_selectivities[
-            param
-        ]=actual_sels
+                raise RuntimeError(
+                    f"{CURRENT_METHOD}: "
+                    f"sample/selectivity mismatch "
+                    f"for {param}"
+                )
 
-        param_values_dict[param] = values
+            actual_axis_selectivities[
+                param
+            ]=target_sels
+
+
+        # ====================================
+        # compute actual selectivities
+        # ====================================
+
+        else:
+
+            actual_sels=[]
+
+            for v in values:
+
+                s=get_axis_selectivity(
+                    conn,
+                    real_table,
+                    column,
+                    v
+                )
+
+                actual_sels.append(s)
+
+            actual_axis_selectivities[
+                param
+            ]=actual_sels
+
 
         print(
             f"{param}: "
@@ -995,28 +1076,47 @@ for CURRENT_METHOD in METHODS_TO_RUN:
             )
 
         return int(total)
+    
 
     # =========================================================
     # Prepare query cache only
     # =========================================================
 
-    combo_queries = {}
+    print()
+    print("Preparing query cache...")
 
-    for combo in all_combinations:
+    combo_queries={}
 
-        query_to_run=substitute_params(
-            sql_text,
-            combo
+    total_combos=len(
+        all_combinations
+    )
+
+    for i,combo in enumerate(
+        all_combinations,
+        start=1
+    ):
+
+        combo_queries[combo]=(
+            substitute_params(
+                sql_text,
+                combo
+            )
         )
-        combo_queries[combo]=query_to_run
 
-        #logs
-        if len(combo_queries) % 25 == 0:
+        if (
+            i % 100==0
+            or
+            i==total_combos
+        ):
 
             print(
-                f"Preparation progress: "
-                f"{len(combo_queries)}/{len(all_combinations)}"
+                f"Query caching progress: "
+                f"{i}/{total_combos}"
             )
+
+    print(
+        "Query cache complete"
+    )
 
     # =========================================================
     # LOGS
