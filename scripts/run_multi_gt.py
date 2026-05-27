@@ -1,5 +1,5 @@
 # =====================
-# scripts/run_gt.py
+# scripts/run_multi_gt.py
 # =====================
 
 from concurrent.futures import (

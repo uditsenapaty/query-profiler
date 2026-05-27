@@ -16,9 +16,11 @@ COMPARATOR_MODULE = "scripts/automated_script/comparator.py"
 PLAN_HASH_METHOD = "structural_hash_md5"
 
 # =========================================================
-# 2. SQL source
+# 2. SQL source 
 # =========================================================
 
+# OPTIONAL : Input if run for 1 QUERY ONLY using "build_gt.py"!!
+# For MULTIPLE QUERY runs together use : "run_multi_gt.py"!!
 QUERY="qt8"
 
 QUERY_SQL_PATH=(
