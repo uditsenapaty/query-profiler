@@ -121,7 +121,7 @@ RESULTS_FILENAME = "ground_truth.csv"
 METADATA_FILENAME = "gt_metadata.json"
 
 def get_method_dir(method, resolution):
-    return ( MAIN_DIR / f"{method}_{resolution}x{resolution}" )
+    return ( MAIN_DIR / f"{resolution}x{resolution}" / f"{method}" )
 
 def set_method_paths(method, resolution):
     global RESULTS_DIR
@@ -158,6 +158,7 @@ PER_METHOD_PROCESSORS=[
     "merge_qerr_instances",
     "merge_qerr_instances_nb",
     "instance_grid_maps",
+    "summarised_instances",
     # "neighbor_analysis",
     # "qerr_stats",
     # "plan_summary",

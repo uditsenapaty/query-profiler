@@ -7,7 +7,7 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import gaussian_kde
-from config_gt import MAIN_DIR
+import config_gt
 
 
 # ======================================
@@ -27,83 +27,54 @@ POINT_SIZE=60
 
 
 # ======================================
-# Remove only boundary points
-# ======================================
-
-def remove_boundaries(df):
-
-    xvals=np.sort(
-        df["x1"].unique()
-    )
-
-    yvals=np.sort(
-        df["x2"].unique()
-    )
-
-    xmin,xmax=(
-        xvals[0],
-        xvals[-1]
-    )
-
-    ymin,ymax=(
-        yvals[0],
-        yvals[-1]
-    )
-
-    df=df[
-
-        (df["x1"]!=xmin)
-        &
-        (df["x1"]!=xmax)
-        &
-        (df["x2"]!=ymin)
-        &
-        (df["x2"]!=ymax)
-
-    ]
-
-    return df
-
-
-# ======================================
 # callable
 # ======================================
 
-def run(main_dir):
+def run(main_dir=None):
+
+    if main_dir is None:
+        main_dir=config_gt.MAIN_DIR
 
     main_dir=Path(main_dir)
 
     methods=[]
 
-    for m in ["m0","m1","m2"]:
+
+    # ==================================
+    # dynamically load methods
+    # ==================================
+
+    for m in config_gt.METHOD_CONFIGS:
 
         dirs=list(
+
             main_dir.glob(
                 f"{m}_*"
             )
+
         )
 
         if len(dirs)==0:
             continue
 
         df=pd.read_csv(
-            dirs[0]/"ground_truth.csv"
+            dirs[0]/
+            "ground_truth.csv"
         )
-
-        # only remove boundary points
-        df=remove_boundaries(df)
 
         methods.append(
             (m,df)
         )
 
+
     if len(methods)==0:
         return
 
 
-    # ====================================
+    # ==================================
     # density background
-    # ====================================
+    # use ALL points
+    # ==================================
 
     allx=np.concatenate([
 
@@ -121,6 +92,7 @@ def run(main_dir):
 
     ])
 
+
     xy=np.vstack([
 
         allx,
@@ -128,9 +100,11 @@ def run(main_dir):
 
     ])
 
+
     kde=gaussian_kde(
         xy
     )
+
 
     xx,yy=np.mgrid[
 
@@ -140,6 +114,7 @@ def run(main_dir):
 
     ]
 
+
     coords=np.vstack([
 
         xx.ravel(),
@@ -147,15 +122,18 @@ def run(main_dir):
 
     ])
 
+
     z=kde(
         coords
     ).reshape(
         xx.shape
     )
 
+
     plt.figure(
         figsize=(15,12)
     )
+
 
     plt.contourf(
 
@@ -169,13 +147,17 @@ def run(main_dir):
     )
 
 
-    # ====================================
+    # ==================================
     # grids
-    # ====================================
+    # ==================================
 
     for method,df in methods:
 
-        color=METHOD_COLORS[method]
+        color=METHOD_COLORS.get(
+            method,
+            "black"
+        )
+
 
         x=np.sort(
             df["x1"].unique()
@@ -185,12 +167,26 @@ def run(main_dir):
             df["x2"].unique()
         )
 
-        for yy in y:
+
+        # ==========================
+        # remove only boundary lines
+        # ==========================
+
+        x_draw=x[1:-1]
+        y_draw=y[1:-1]
+
+
+        # --------------------------
+        # horizontal
+        # --------------------------
+
+        for yy in y_draw:
 
             plt.plot(
 
-                x,
-                [yy]*len(x),
+                x_draw,
+
+                [yy]*len(x_draw),
 
                 "-",
 
@@ -202,12 +198,18 @@ def run(main_dir):
 
             )
 
-        for xx in x:
+
+        # --------------------------
+        # vertical
+        # --------------------------
+
+        for xx in x_draw:
 
             plt.plot(
 
-                [xx]*len(y),
-                y,
+                [xx]*len(y_draw),
+
+                y_draw,
 
                 "-",
 
@@ -218,6 +220,11 @@ def run(main_dir):
                 linewidth=GRID_WIDTH
 
             )
+
+
+        # ==========================
+        # KEEP ALL POINTS
+        # ==========================
 
         plt.scatter(
 
@@ -240,6 +247,7 @@ def run(main_dir):
 
     plt.tight_layout()
 
+
     out=(
 
         main_dir/
@@ -247,12 +255,16 @@ def run(main_dir):
 
     )
 
+
     plt.savefig(
+
         out,
         dpi=300
+
     )
 
     plt.close()
+
 
     print(
         f"Saved: {out}"
@@ -265,6 +277,4 @@ def run(main_dir):
 
 if __name__=="__main__":
 
-    run(
-        MAIN_DIR
-    )
+    run()

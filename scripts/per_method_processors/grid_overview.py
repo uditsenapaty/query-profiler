@@ -196,9 +196,7 @@ def run(results_dir):
                 index="x2",
                 columns="x1",
                 values="joint_sel"
-
             )
-
 
             grid=grid.loc[
                 y,
