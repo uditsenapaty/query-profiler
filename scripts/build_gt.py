@@ -133,6 +133,65 @@ def run_processor(name, processor_dir, arg):
         )
 
 # =====================================================
+# Resume helpers
+# =====================================================
+
+def get_resume_file():
+
+    return (
+        config_gt.RESULTS_DIR
+        / "resume_state.json"
+    )
+
+
+def load_resume_state():
+
+    f=get_resume_file()
+
+    if not f.exists():
+
+        return {
+            "completed":[],
+            "finished":False
+        }
+
+    with open(f,"r") as x:
+        return json.load(x)
+
+
+def save_resume_state(state):
+
+    with open(
+        get_resume_file(),
+        "w"
+    ) as f:
+
+        json.dump(
+            state,
+            f,
+            indent=2
+        )
+
+
+def combo_key(
+        combo,
+        round_id
+):
+
+    combo=list(
+        map(
+            str,
+            combo
+        )
+    )
+
+    return (
+        f"r{round_id}_"
+        +
+        "|".join(combo)
+    )
+
+# =====================================================
 # Helper for Json Serialize
 # =====================================================
 from decimal import Decimal
@@ -306,6 +365,39 @@ for CURRENT_METHOD in METHODS_TO_RUN:
     # Create output directories
     # =========================================================
     config_gt.ensure_paths()
+
+    # =====================================================
+    # Resume state
+    # =====================================================
+
+    resume_state=load_resume_state()
+
+    if resume_state.get(
+        "finished",
+        False
+    ):
+
+        print()
+        print("="*70)
+        print(
+            f"{CURRENT_METHOD} already completed."
+        )
+        print("="*70)
+
+        continue
+
+
+    completed_runs=set(
+        resume_state[
+            "completed"
+        ]
+    )
+
+    print(
+        f"Found "
+        f"{len(completed_runs)} "
+        f"completed runs"
+    )
 
     print(f"Output directories ready:\n  {config_gt.PLANS_DIR}\n  {config_gt.PLAN_TREES_DIR}\n  {config_gt.TRACES_DIR}")
 
@@ -930,7 +1022,7 @@ for CURRENT_METHOD in METHODS_TO_RUN:
     # LOGS
     global_start = time.time()
     total_queries = config_gt.TOTAL_ROUNDS * len(all_combinations)
-    completed_queries = 0
+    completed_queries = len(completed_runs)
     # =========================================================
 
     for round_id in range(config_gt.TOTAL_ROUNDS):
@@ -942,6 +1034,17 @@ for CURRENT_METHOD in METHODS_TO_RUN:
 
         print(f"\n--- Round {round_id + 1} ---\n")
         for combo in all_combinations:
+            key=combo_key(
+                combo,
+                round_id
+            )
+
+            # =========================
+            # skip completed
+            # =========================
+            if key in completed_runs:
+                continue
+            
             query_to_run = combo_queries[combo]
 
             cur = conn.cursor()
@@ -967,10 +1070,11 @@ for CURRENT_METHOD in METHODS_TO_RUN:
 
             # ======================================================
             # LOGS
-            completed_queries += 1
-            elapsed = time.time() - global_start
-            avg_time = elapsed / completed_queries
-            remaining = total_queries - completed_queries
+            completed_queries+=1
+            newly_done=(completed_queries-len(completed_runs)+1)
+            elapsed=(time.time()-global_start)
+            avg_time=elapsed/max(newly_done,1)
+            remaining=(total_queries-completed_queries)
             eta_seconds = avg_time * remaining
             eta_minutes = eta_seconds / 60
 
@@ -988,6 +1092,24 @@ for CURRENT_METHOD in METHODS_TO_RUN:
                     "explain": explain_data,
                     "round": round_id + 1
                 })
+
+            # =========================
+            # SAVE PROGRESS IMMEDIATELY
+            # =========================
+
+            completed_runs.add(
+                key
+            )
+
+            resume_state[
+                "completed"
+            ]=list(
+                completed_runs
+            )
+
+            save_resume_state(
+                resume_state
+            )
 
         print(f"Completed round {round_id + 1}/{config_gt.TOTAL_ROUNDS}")
 
@@ -1740,6 +1862,20 @@ for CURRENT_METHOD in METHODS_TO_RUN:
             f"{df[col].sum()}"
         )
     print(f"  Unique plan hashes: {df['plan_hash'].nunique()}")
+
+    resume_state[
+        "finished"
+    ]=True
+
+    save_resume_state(
+        resume_state
+    )
+
+    print()
+    print(
+        f"{CURRENT_METHOD}"
+        f" marked complete"
+    )
 
     conn.close()
 
