@@ -57,13 +57,13 @@ METHOD_CONFIGS = {
         }
     },
 
-    "m3":{
+    # "m3":{
 
-        "sampler":"sampler_selectivity_m3",
-        "resolution":{
-            "default":10,
-        }
-    },
+    #     "sampler":"sampler_selectivity_m3",
+    #     "resolution":{
+    #         "default":10,
+    #     }
+    # },
 
 }
 
