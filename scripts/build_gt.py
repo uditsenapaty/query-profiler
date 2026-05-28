@@ -14,35 +14,32 @@ from pathlib import Path
 class Tee:
 
     def __init__(self,*files):
-
         self.files=files
 
     def write(self,obj):
 
         for f in self.files:
-
             f.write(obj)
             f.flush()
 
     def flush(self):
 
         for f in self.files:
-
             f.flush()
 
-    def isatty(self):
+    def fileno(self):
 
         for f in self.files:
 
             try:
-
-                if f.isatty():
-                    return True
+                return f.fileno()
 
             except Exception:
                 pass
 
-        return False
+        raise OSError(
+            "No fileno available"
+        )
 
 #===========================================================
 # CLI Arguements helper for running multiple queries
@@ -574,12 +571,12 @@ for CURRENT_METHOD in METHODS_TO_RUN:
         )
 
         sys.stdout=Tee(
-            sys.__stdout__,
+            sys.stdout,
             log_file
         )
 
         sys.stderr=Tee(
-            sys.__stderr__,
+            sys.stderr,
             log_file
         )
 
@@ -1181,7 +1178,8 @@ for CURRENT_METHOD in METHODS_TO_RUN:
 
                 unit="row",
 
-                disable=LOGFILE_MODE
+                disable=LOGFILE_MODE,
+                ascii=False,
             )
 
             while True:
@@ -1340,7 +1338,8 @@ for CURRENT_METHOD in METHODS_TO_RUN:
                 desc=f"{param} selectivities",
                 unit="point",
                 leave=False,
-                disable=LOGFILE_MODE
+                disable=LOGFILE_MODE,
+                ascii=False,
             ):
 
                 s=get_axis_selectivity(
@@ -1600,7 +1599,8 @@ for CURRENT_METHOD in METHODS_TO_RUN:
         all_combinations,
         desc="Caching queries",
         unit="query",
-        disable=LOGFILE_MODE
+        disable=LOGFILE_MODE,
+        ascii=False,
     ):
 
         combo_queries[combo]=(
