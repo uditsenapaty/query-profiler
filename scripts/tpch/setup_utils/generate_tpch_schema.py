@@ -4,16 +4,24 @@
 
 import psycopg2
 
-DB_NAME = "tpch"
-DB_USER = "postgres"
-DB_PASS = "112358"
-DB_HOST = "127.0.0.1"
-DB_PORT = "5432"
-
-conn = psycopg2.connect(
-    dbname=DB_NAME, user=DB_USER, password=DB_PASS, host=DB_HOST, port=DB_PORT
+from tpch.setup_tpch import (
+    DATABASE_NAME,
+    USER,
+    PASSWORD,
+    HOST,
+    PORT
 )
-cur = conn.cursor()
+
+conn=psycopg2.connect(
+    dbname=DATABASE_NAME,
+    user=USER,
+    password=PASSWORD,
+    host=HOST,
+    port=PORT
+)
+
+cur=conn.cursor()
+
 
 # ===============================
 # CREATE TABLES
@@ -120,25 +128,7 @@ for stmt in table_statements:
     cur.execute(stmt)
 conn.commit()
 
-# ===============================
-# CREATE INDEXES
-# ===============================
-index_statements = [
-    "CREATE INDEX IF NOT EXISTS idx_orders_custkey ON orders(o_custkey);",
-    "CREATE INDEX IF NOT EXISTS idx_lineitem_partkey ON lineitem(l_partkey);",
-    "CREATE INDEX IF NOT EXISTS idx_lineitem_suppkey ON lineitem(l_suppkey);",
-    "CREATE INDEX IF NOT EXISTS idx_lineitem_orderkey ON lineitem(l_orderkey);",
-    "CREATE INDEX IF NOT EXISTS idx_partsupp_suppkey ON partsupp(ps_suppkey);",
-    "CREATE INDEX IF NOT EXISTS idx_partsupp_partkey ON partsupp(ps_partkey);",
-    "CREATE INDEX IF NOT EXISTS idx_customer_nationkey ON customer(c_nationkey);",
-    "CREATE INDEX IF NOT EXISTS idx_supplier_nationkey ON supplier(s_nationkey);",
-    "CREATE INDEX IF NOT EXISTS idx_nation_regionkey ON nation(n_regionkey);"
-]
-
-for stmt in index_statements:
-    cur.execute(stmt)
-conn.commit()
-
 cur.close()
 conn.close()
-print("TPCH schema created with indexes.")
+
+print("TPCH Schema created.")

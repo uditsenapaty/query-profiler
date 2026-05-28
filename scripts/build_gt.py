@@ -4,7 +4,6 @@
 
 #===========================================================
 # CLI Arguements helper for running multiple queries
-
 import argparse
 import config_gt
 
@@ -23,7 +22,7 @@ if args.query:
 
     config_gt.QUERY_SQL_PATH = (
         config_gt.Path(__file__).resolve().parent
-        / "automated_script"
+        / "utils"
         / "queries"
         / f"{config_gt.QUERY}.sql"
     )
@@ -32,6 +31,7 @@ if args.query:
         f"gt_results_{config_gt.SF}_{config_gt.QUERY}"
     )
 # ===========================================================
+
 
 import pandas as pd
 import bisect
@@ -47,7 +47,6 @@ from itertools import product
 from datetime import datetime, timedelta
 from importlib import import_module
 import importlib.util
-
 import config_gt
 
 # from config_gt import (
@@ -82,44 +81,19 @@ import config_gt
 #     config_gt.get_active_methods,
 #     config_gt.config_gt.MAIN_DIR,
 # )
+
 import re
 import psycopg2
 import psycopg2.sql as sql
 from tpch_query_parser import TPCHQueryParser
 import importlib.util
 
-# from samplers import (
-#     sampler_data_m0,
-#     sampler_selectivity_m1,
-#     sampler_selectivity_m2,
-# )
-
-# SAMPLERS = {
-#     "m0": sampler_data_m0,
-#     "m1": sampler_selectivity_m1,
-#     "m2": sampler_selectivity_m2,
-# }
-
 # Import comparator for plan hashing
-from automated_script.comparator import structural_hash, plan_tree_str
+from tpch.utils.comparator import structural_hash, plan_tree_str
 
-# =====================================================
-# Sampler dispatch
-# =====================================================
-#
-# The three sampling strategies live in dedicated modules
-# (sampler_data_m0, sampler_selectivity_m1,
-# sampler_selectivity_m2). The active strategy is chosen
-# by config_gt.SAMPLING_METHOD in config_gt.py.
-#
-# data_m0         – uniform resolution over the data space
-# selectivity_m1  – uniform resolution over the selectivity
-#                   space (percentile method).
-# selectivity_m2  – exponential resolution over the selectivity
-#                   space (geometric method).
 
 # ===================================================
-# Resolve methods to run
+# Resolve Sampling Methods to run
 # ===================================================
 
 METHODS_TO_RUN=config_gt.get_active_methods()
@@ -165,7 +139,7 @@ def run_processor(name, processor_dir, arg):
         )
 
 # =====================================================
-# Resume helpers
+# Helpers to Resume Script Run
 # =====================================================
 
 def get_resume_file():
@@ -225,6 +199,7 @@ def combo_key(
 # =====================================================
 # Helper for Json Serialize
 # =====================================================
+
 from decimal import Decimal
 from datetime import (
     date,
@@ -331,8 +306,7 @@ def json_serializer(obj):
         return str(obj)
     
 # =========================================================
-# Selectivity cache
-# table.column -> sorted values
+# Selectivity cache (table.column -> sorted values)
 # =========================================================
 
 SELECTIVITY_CACHE={}

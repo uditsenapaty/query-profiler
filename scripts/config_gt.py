@@ -1,18 +1,24 @@
-#config_gt.py
+# =========================================================
+# config_gt.py
+# =========================================================
 from pathlib import Path
 
 # =========================================================
 # 1. Database Configs
 # =========================================================
-DATABASE_NAME = "tpch"
-PASSWORD = "112358"
-USER = "postgres"
-HOST = "localhost"
-SF = "sf1"
+
+from tpch import setup_tpch
+
+DATABASE_NAME = setup_tpch.DATABASE_NAME
+PASSWORD = setup_tpch.PASSWORD
+USER = setup_tpch.USER
+HOST = setup_tpch.HOST
+PORT = setup_tpch.PORT
+SF = setup_tpch.SF
 
 # Imports
 # Plan Comparator
-COMPARATOR_MODULE = "scripts/automated_script/comparator.py"
+COMPARATOR_MODULE = "./tpch/utils/comparator.py"
 PLAN_HASH_METHOD = "structural_hash_md5"
 
 # =========================================================
@@ -25,7 +31,7 @@ QUERY="qt8"
 
 QUERY_SQL_PATH=(
     Path(__file__).resolve().parent
-    / "automated_script"
+    / "utils"
     / "queries"
     / f"{QUERY}.sql"
 )
@@ -33,6 +39,12 @@ QUERY_SQL_PATH=(
 # =========================================================
 # 3. Method registry
 # =========================================================
+
+# data_m0         – uniform resolution over the data space
+# selectivity_m1  – uniform resolution over the selectivity
+#                   space (percentile method).
+# selectivity_m2  – exponential resolution over the selectivity
+#                   space (geometric method).
 
 METHOD_CONFIGS = {
 
@@ -76,15 +88,16 @@ METHOD_CONFIGS = {
 # m0   -> data-space
 # m1   -> selectivity uniform
 # m2   -> Picasso exponential
+
 CURRENT_METHOD=None
 SAMPLING_METHOD = "all"
 
 if SAMPLING_METHOD == "all" :
     RUN_METHODS=list(METHOD_CONFIGS.keys())
-elif SAMPLING_METHOD != None :
+elif SAMPLING_METHOD == ("m0"or"m1"or"m2"or"m3") :
     RUN_METHODS = [SAMPLING_METHOD]
 else:
-    RUN_METHODS = ["m0", "m1", "m2", "m3"]
+    RUN_METHODS = ["m0", "m1"]
 
 
 SAMPLER_FILES={
@@ -161,6 +174,7 @@ PER_METHOD_PROCESSORS=[
     "merge_qerr_instances_nb",
     "instance_grid_maps",
     "summarised_instances",
+    "qerr_threshold_curves"
     # "neighbor_analysis",
     # "qerr_stats",
     # "plan_summary",
