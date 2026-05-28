@@ -47,7 +47,8 @@ def run_query(query_name):
     start=time.time()
 
     log_file=(
-        LOG_DIR/
+        LOG_DIR
+        /
         f"{query_name}.log"
     )
 
@@ -62,31 +63,79 @@ def run_query(query_name):
 
     ]
 
+    # ==================================================
+    # append mode
+    # ==================================================
+
+    file_exists=log_file.exists()
+
     with open(
+
         log_file,
-        "w",
-        buffering=1
+
+        "a",
+
+        buffering=1,
+
+        encoding="utf-8"
+
     ) as f:
 
-        f.write(
-            "\n"
-            + "="*70
-            + "\n"
-        )
+        # ----------------------------------------------
+        # separator between runs
+        # ----------------------------------------------
+
+        if file_exists:
+
+            f.write("\n\n")
+
+            f.write(
+                "#"*80
+                + "\n"
+            )
+
+            f.write(
+                "RESUMING / RESTARTING RUN\n"
+            )
+
+            f.write(
+                "#"*80
+                + "\n\n"
+            )
+
+        else:
+
+            f.write(
+                "\n"
+                + "="*70
+                + "\n"
+            )
+
+            f.write(
+                f"QUERY : {query_name}\n"
+            )
+
+            f.write(
+                "="*70
+                + "\n\n"
+            )
+
+        # ----------------------------------------------
+        # timestamp
+        # ----------------------------------------------
 
         f.write(
-            f"QUERY : {query_name}\n"
-        )
 
-        f.write(
             f"START : "
-            f"{time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"{time.strftime('%Y-%m-%d %H:%M:%S')}\n\n"
+
         )
 
-        f.write(
-            "="*70
-            + "\n\n"
-        )
+        f.flush()
+
+        # ==================================================
+        # execute
+        # ==================================================
 
         result=subprocess.run(
 
@@ -94,28 +143,63 @@ def run_query(query_name):
 
             stdout=f,
             stderr=subprocess.STDOUT,
+
             text=True
 
         )
 
-    elapsed=(
-        time.time()
-        -
-        start
-    )
+        # ==================================================
+        # end marker
+        # ==================================================
+
+        elapsed=(
+            time.time()
+            -
+            start
+        )
+
+        f.write("\n")
+
+        f.write(
+            "-"*70
+            + "\n"
+        )
+
+        f.write(
+            f"END : "
+            f"{time.strftime('%Y-%m-%d %H:%M:%S')}\n"
+        )
+
+        f.write(
+            f"ELAPSED : "
+            f"{elapsed:.2f} sec\n"
+        )
+
+        f.write(
+            f"RETURN CODE : "
+            f"{result.returncode}\n"
+        )
+
+        f.write(
+            "-"*70
+            + "\n"
+        )
+
+        f.flush()
 
     return {
 
-        "query":query_name,
+        "query":
+        query_name,
 
         "returncode":
-            result.returncode,
+        result.returncode,
 
         "time":
-            elapsed,
+        elapsed,
 
         "log":
-            str(log_file)
+        str(log_file)
 
     }
 
