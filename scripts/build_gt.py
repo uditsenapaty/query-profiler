@@ -47,6 +47,7 @@ from itertools import product
 from datetime import datetime, timedelta
 from importlib import import_module
 import importlib.util
+from tqdm import tqdm
 import config_gt
 
 # from config_gt import (
@@ -855,9 +856,8 @@ for CURRENT_METHOD in METHODS_TO_RUN:
 
         if cache_key not in SELECTIVITY_CACHE:
 
-            print(
-                f"\nCaching "
-                f"{table}.{column}"
+            tqdm.write(
+                f"Caching {table}.{column}"
             )
 
             cur=conn.cursor()
@@ -886,10 +886,8 @@ for CURRENT_METHOD in METHODS_TO_RUN:
                 cache_key
             ]=vals
 
-            print(
-                f"Cached "
-                f"{len(vals):,}"
-                f" values"
+            tqdm.write(
+                f"Cached {len(vals):,} values"
             )
 
 
@@ -1012,9 +1010,14 @@ for CURRENT_METHOD in METHODS_TO_RUN:
                 f"Computing actual selectivities"
             )
 
-            for i,v in enumerate(
-                    values,
-                    start=1
+            for v in tqdm(
+
+                values,
+
+                desc=f"{param} selectivities",
+                unit="point",
+                leave=False
+
             ):
 
                 s=get_axis_selectivity(
@@ -1025,17 +1028,6 @@ for CURRENT_METHOD in METHODS_TO_RUN:
                 )
 
                 actual_sels.append(s)
-
-                if (
-                    i%10==0
-                    or
-                    i==n
-                ):
-
-                    print(
-                        f"[{param}] "
-                        f"{i}/{n}"
-                    )
 
             actual_axis_selectivities[
                 param
@@ -1187,37 +1179,26 @@ for CURRENT_METHOD in METHODS_TO_RUN:
 
     combo_queries={}
 
-    total_combos=len(
-        all_combinations
-    )
+    for combo in tqdm(
 
-    for i,combo in enumerate(
         all_combinations,
-        start=1
+
+        desc="Caching queries",
+        unit="query"
+
     ):
 
         combo_queries[combo]=(
+
             substitute_params(
                 sql_text,
                 combo
             )
         )
 
-        if (
-            i % 1000==0
-            or
-            i==total_combos
-        ):
-
-            print(
-                f"Query caching progress: "
-                f"{i}/{total_combos}"
-            )
-
     print(
         "Query cache complete"
     )
-
     # =========================================================
     # LOGS
     global_start = time.time()
@@ -1233,11 +1214,19 @@ for CURRENT_METHOD in METHODS_TO_RUN:
 
 
         print(f"\n--- Round {round_id + 1} ---\n")
-        for combo in all_combinations:
-            key=combo_key(
-                combo,
-                round_id
-            )
+
+        combo_pbar=tqdm(
+            all_combinations,
+            desc=(
+                f"{CURRENT_METHOD} "
+                f"Round {round_id+1}"
+            ),
+            unit="combo"
+        )
+
+        for combo in combo_pbar:
+
+            key=combo_key(combo,round_id)
 
             # =========================
             # skip completed
@@ -1278,12 +1267,12 @@ for CURRENT_METHOD in METHODS_TO_RUN:
             eta_seconds = avg_time * remaining
             eta_minutes = eta_seconds / 60
 
-            print(
-                f"[{completed_queries}/{total_queries}] "
-                f"combo={combo} "
-                f"time={execution_time:.2f} ms "
-                f"ETA={eta_minutes:.1f} min"
-            )
+            combo_pbar.set_postfix({
+                "runtime_ms":
+                f"{execution_time:.2f}",
+                "eta_min":
+                f"{eta_minutes:.1f}"
+            })
             # ======================================================
 
             if round_id >= config_gt.WARMUP_ROUND:
