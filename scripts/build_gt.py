@@ -1159,6 +1159,8 @@ for CURRENT_METHOD in METHODS_TO_RUN:
                     f"sample/selectivity mismatch "
                     f"for {param}"
                 )
+            
+            actual_axis_selectivities[param]=target_sels
 
             print(
                 f"[{param}] "
@@ -1192,9 +1194,7 @@ for CURRENT_METHOD in METHODS_TO_RUN:
 
                 actual_sels.append(s)
 
-            actual_axis_selectivities[
-                param
-            ]=actual_sels
+            actual_axis_selectivities[param]=actual_sels
 
 
     print()
@@ -1811,7 +1811,26 @@ for CURRENT_METHOD in METHODS_TO_RUN:
             joint_sel,
         ])
 
-        print(f"Combo={combo} | runtime={runtime_mean:.4f} ms | plan_hash={plan_hash[:8]}... | plan={root_node}")
+
+    # Check for combos processed
+    processed_combos=len(rows)
+    expected_combos=len(all_combinations)
+
+    if processed_combos==expected_combos:
+
+        print(
+            f"\nProcessed all "
+            f"{processed_combos:,} combos\n"
+        )
+
+    else:
+
+        print(
+            f"\nWARNING: "
+            f"processed "
+            f"{processed_combos:,}/"
+            f"{expected_combos:,} combos\n"
+        )
 
 
     # =========================================================
