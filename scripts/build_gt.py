@@ -3,6 +3,46 @@
 # =========================================================
 
 
+# =====================================================
+# Tee logger
+# =====================================================
+
+import sys
+from pathlib import Path
+
+
+class Tee:
+
+    def __init__(self,*files):
+
+        self.files=files
+
+    def write(self,obj):
+
+        for f in self.files:
+
+            f.write(obj)
+            f.flush()
+
+    def flush(self):
+
+        for f in self.files:
+
+            f.flush()
+
+    def isatty(self):
+
+        for f in self.files:
+
+            try:
+
+                if f.isatty():
+                    return True
+
+            except Exception:
+                pass
+
+        return False
 
 #===========================================================
 # CLI Arguements helper for running multiple queries
@@ -453,6 +493,11 @@ for CURRENT_METHOD in METHODS_TO_RUN:
     print()
     print("="*70)
     print(f"RUNNING METHOD: "f"{CURRENT_METHOD}")
+
+    print("\n"+ "#"*80)
+    print(f"METHOD START: "f"{CURRENT_METHOD}")
+    print("#"*80+ "\n")
+    
     print("="*70)
 
     # temporarily switch active method
@@ -492,6 +537,74 @@ for CURRENT_METHOD in METHODS_TO_RUN:
     # Create output directories
     # =========================================================
     config_gt.ensure_paths()
+
+
+    # =====================================================
+    # Standalone logging
+    # =====================================================
+
+    if os.environ.get(
+        "GT_LOGFILE_MODE"
+    )!="1":
+
+        log_dir=Path(
+            "gt_run_logs"
+        )
+
+        log_dir.mkdir(
+            exist_ok=True
+        )
+
+        log_path=(
+            log_dir
+            /
+            f"{config_gt.QUERY}.log"
+        )
+
+        log_file=open(
+
+            log_path,
+
+            "a",
+
+            buffering=1,
+
+            encoding="utf-8"
+
+        )
+
+        sys.stdout=Tee(
+            sys.__stdout__,
+            log_file
+        )
+
+        sys.stderr=Tee(
+            sys.__stderr__,
+            log_file
+        )
+
+        print(
+            "\n"
+            + "="*80
+        )
+
+        print(
+            "DIRECT build_gt.py RUN"
+        )
+
+        print(
+            f"LOG FILE: {log_path}"
+        )
+
+        print(
+            f"START: "
+            f"{time.strftime('%Y-%m-%d %H:%M:%S')}"
+        )
+
+        print(
+            "="*80
+            + "\n"
+        )
 
     # =====================================================
     # Resume state
