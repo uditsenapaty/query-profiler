@@ -3,36 +3,6 @@
 # =========================================================
 
 
-#===========================================================
-# Logging setup
-import os
-
-LOGFILE_MODE=(
-    os.environ.get(
-        "GT_LOGFILE_MODE",
-        "0"
-    )=="1"
-)
-#===========================================================
-
-
-#===========================================================
-# Multi Query ETA Support
-TOTAL_QUERY_JOBS=int(
-    os.environ.get(
-        "GT_TOTAL_QUERY_JOBS",
-        "1"
-    )
-)
-
-QUERY_JOB_INDEX=int(
-    os.environ.get(
-        "GT_QUERY_JOB_INDEX",
-        "1"
-    )
-)
-#===========================================================
-
 
 #===========================================================
 # CLI Arguements helper for running multiple queries
@@ -126,11 +96,73 @@ import importlib.util
 from tpch.utils.comparator import structural_hash, plan_tree_str
 
 
+
+
+#===========================================================
+# Logging setup
+import os
+
+LOGFILE_MODE=(
+    os.environ.get(
+        "GT_LOGFILE_MODE",
+        "0"
+    )=="1"
+)
+#===========================================================
+
+
+#===========================================================
+# Multi Query ETA Support
+TOTAL_QUERY_JOBS=int(
+    os.environ.get(
+        "GT_TOTAL_QUERY_JOBS",
+        "1"
+    )
+)
+
+QUERY_JOB_INDEX=int(
+    os.environ.get(
+        "GT_QUERY_JOB_INDEX",
+        "1"
+    )
+)
+
+GLOBAL_ALL_START=float(
+    os.environ.get(
+        "GT_GLOBAL_START",
+        time.time()
+    )
+)
+#===========================================================
+
+
 # =========================================================
 # Helper for Human-readable time duration
 # =========================================================
 
 def format_duration(seconds):
+
+    # =====================================================
+    # invalid / NaN
+    # =====================================================
+
+    if seconds is None:
+        return "?"
+
+    try:
+
+        if np.isnan(seconds):
+            return "?"
+
+    except Exception:
+        pass
+
+    if np.isinf(seconds):
+        return "∞"
+
+    # =====================================================
+    # normal formatting
+    # =====================================================
 
     seconds=max(
         int(seconds),
@@ -1396,52 +1428,62 @@ for CURRENT_METHOD in METHODS_TO_RUN:
 
             # ======================================================
             # LOGS
+            completed_queries+=1
+            
             recent_times.append(execution_time)
             avg_ms=sum(recent_times)/max(len(recent_times),1)
 
-            # ROUND ETA
-            round_completed=(completed_queries%len(all_combinations))
-            round_remaining=(len(all_combinations)-round_completed)
-            round_eta_sec=(avg_ms*round_remaining)/1000
-
             # METHOD ETA
-            method_remaining=(total_queries-completed_queries)
-            method_eta_sec=(avg_ms*method_remaining)/1000
+            method_elapsed_sec=(time.time()-method_start)
+            method_progress=(completed_queries/total_queries)
+
+            if method_progress>0:
+                method_total_est=(method_elapsed_sec/method_progress)
+                method_eta_sec=(method_total_est-method_elapsed_sec)
+            else:
+                method_eta_sec=np.nan
 
             # WHOLE QUERY ETA
-            query_elapsed=(time.time()-script_start_perf)
-            query_progress=(completed_queries/total_queries)
+            query_elapsed_sec=(time.time()-script_start_perf)
+            methods_done = METHODS_TO_RUN.index(CURRENT_METHOD)
+            method_fraction = (completed_queries/total_queries)
+            query_progress = (methods_done+method_fraction) / len(METHODS_TO_RUN)
 
             if query_progress>0:
-                query_total_est=(query_elapsed/query_progress)
-                query_eta_sec=(query_total_est-query_elapsed)
+                query_total_est=(query_elapsed_sec/query_progress)
+                query_eta_sec=(query_total_est-query_elapsed_sec)
             else:
                 query_eta_sec=np.nan
 
             # ALL MULTI QUERY ETA
-            all_queries_eta_sec=(query_eta_sec*TOTAL_QUERY_JOBS)
+            queries_completed=(QUERY_JOB_INDEX-1)
+            overall_progress=((queries_completed+query_progress)/TOTAL_QUERY_JOBS)
+            all_elapsed_sec=(time.time()-GLOBAL_ALL_START)
 
-            # =====================================================
-            completed_queries+=1
-            newly_done=(completed_queries-len(completed_runs)+1)
-            elapsed=(time.time()-global_start)
-            avg_time=elapsed/max(newly_done,1)
-            # =====================================================
+            if overall_progress>0:
+                all_total_est=(all_elapsed_sec / overall_progress)
+                all_queries_eta_sec=(all_total_est - all_elapsed_sec)
+            else:
+                all_queries_eta_sec=np.nan
 
             if not LOGFILE_MODE:
                 combo_pbar.set_postfix({
-                    "runtime_ms":
-                    f"{execution_time:.1f}",
-                    "elapsed_mins":
-                    f"{(elapsed/60):.1f}",
-                    "round_eta":
-                    format_duration(round_eta_sec),
-                    "method_eta":
-                    format_duration(method_eta_sec),
-                    "query_eta":
+                    # "rt_ms":
+                    # f"{execution_time:.1f}",
+                    "Elapsed-> "
+                    # "m":
+                    # format_duration(method_elapsed_sec),
+                    "q":
+                    format_duration(query_elapsed_sec),
+                    "all":
+                    format_duration(all_elapsed_sec),
+                    "ETAs-> "
+                    # "m":
+                    # format_duration(method_eta_sec),
+                    "q":
                     format_duration(query_eta_sec),
-                    "all_eta":
-                    format_duration(all_queries_eta_sec),
+                    # "all":
+                    # format_duration(all_queries_eta_sec),
                 })
             else:
                 # clean logfile progress
@@ -1457,18 +1499,22 @@ for CURRENT_METHOD in METHODS_TO_RUN:
                         f"/"
                         f"{total_queries}"
                         f"] "
-                        f"runtime_ms="
-                        f"{execution_time:.2f} "
-                        "elapsed_mins:"
-                        f"{(elapsed/60):.1f} ",
-                        "round_eta:"
-                        f"{format_duration(round_eta_sec)} "
-                        "method_eta:"
+                        # f"rt_ms="
+                        # f"{execution_time:.2f} "
+                        "Elapsed-> "
+                        "m:"
+                        f"{format_duration(method_elapsed_sec)} ",
+                        "q:"
+                        f"{format_duration(query_elapsed_sec)} "
+                        "all:"
+                        f"{format_duration(all_elapsed_sec)} "
+                        "ETAs-> "
+                        "m:"
                         f"{format_duration(method_eta_sec)} "
-                        "query_eta:"
+                        "q:"
                         f"{format_duration(query_eta_sec)} "
-                        "all_eta:"
-                        f"{format_duration(all_queries_eta_sec)} "
+                        # "all:"
+                        # f"{format_duration(all_queries_eta_sec)} "
                     )
 
 

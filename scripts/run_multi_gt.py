@@ -211,6 +211,11 @@ def run_query(query_name):
             )+1
         )
 
+        GLOBAL_START_TS=str(
+            time.time()
+        )
+        env["GT_GLOBAL_START"]=GLOBAL_START_TS
+
         # ==================================================
         # execute
         # ==================================================
