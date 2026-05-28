@@ -1011,13 +1011,11 @@ for CURRENT_METHOD in METHODS_TO_RUN:
             )
 
             for v in tqdm(
-
                 values,
-
                 desc=f"{param} selectivities",
                 unit="point",
-                leave=False
-
+                leave=False,
+                disable=not sys.stdout.isatty()
             ):
 
                 s=get_axis_selectivity(
@@ -1180,12 +1178,10 @@ for CURRENT_METHOD in METHODS_TO_RUN:
     combo_queries={}
 
     for combo in tqdm(
-
         all_combinations,
-
         desc="Caching queries",
-        unit="query"
-
+        unit="query",
+        disable=not sys.stdout.isatty()
     ):
 
         combo_queries[combo]=(
@@ -1215,13 +1211,15 @@ for CURRENT_METHOD in METHODS_TO_RUN:
 
         print(f"\n--- Round {round_id + 1} ---\n")
 
+        IS_TTY=sys.stdout.isatty()
         combo_pbar=tqdm(
             all_combinations,
             desc=(
                 f"{CURRENT_METHOD} "
                 f"Round {round_id+1}"
             ),
-            unit="combo"
+            unit="combo",
+            disable=not IS_TTY
         )
 
         for combo in combo_pbar:
@@ -1267,12 +1265,32 @@ for CURRENT_METHOD in METHODS_TO_RUN:
             eta_seconds = avg_time * remaining
             eta_minutes = eta_seconds / 60
 
-            combo_pbar.set_postfix({
-                "runtime_ms":
-                f"{execution_time:.2f}",
-                "eta_min":
-                f"{eta_minutes:.1f}"
-            })
+            if IS_TTY:
+                combo_pbar.set_postfix({
+                    "runtime_ms":
+                    f"{execution_time:.2f}",
+                    "eta_min":
+                    f"{eta_minutes:.1f}"
+                })
+            else:
+                # clean logfile progress
+                if (
+                    completed_queries % 100 == 0
+                    or
+                    completed_queries == total_queries
+                ):
+
+                    print(
+                        f"["
+                        f"{completed_queries}"
+                        f"/"
+                        f"{total_queries}"
+                        f"] "
+                        f"runtime_ms="
+                        f"{execution_time:.2f} "
+                        f"eta_min="
+                        f"{eta_minutes:.1f}"
+                    )
             # ======================================================
 
             if round_id >= config_gt.WARMUP_ROUND:
