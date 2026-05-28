@@ -1,6 +1,6 @@
-# =====================
+# ========================
 # scripts/run_multi_gt.py
-# =====================
+# ========================
 
 from concurrent.futures import (
     ProcessPoolExecutor,
@@ -8,6 +8,7 @@ from concurrent.futures import (
 )
 
 from pathlib import Path
+
 import subprocess
 import time
 import os
@@ -27,8 +28,8 @@ QUERIES=[
 
 ]
 
+# Number of queries running parallelly
 MAX_WORKERS=5
-
 
 LOG_DIR=Path(
     "gt_run_logs"
@@ -37,6 +38,56 @@ LOG_DIR=Path(
 LOG_DIR.mkdir(
     exist_ok=True
 )
+
+
+# =========================================================
+# Human-readable duration
+# =========================================================
+
+def format_duration(seconds):
+
+    seconds=max(
+        int(seconds),
+        0
+    )
+
+    days,remainder=divmod(
+        seconds,
+        86400
+    )
+
+    hours,remainder=divmod(
+        remainder,
+        3600
+    )
+
+    minutes,seconds=divmod(
+        remainder,
+        60
+    )
+
+    parts=[]
+
+    if days>0:
+        parts.append(
+            f"{days}d"
+        )
+
+    if hours>0 or days>0:
+        parts.append(
+            f"{hours}h"
+        )
+
+    if minutes>0 or hours>0 or days>0:
+        parts.append(
+            f"{minutes}m"
+        )
+
+    parts.append(
+        f"{seconds}s"
+    )
+
+    return " ".join(parts)
 
 
 # ======================================
@@ -65,7 +116,7 @@ def run_query(query_name):
     ]
 
     # ==================================================
-    # append mode
+    # logfile append mode
     # ==================================================
 
     file_exists=log_file.exists()
@@ -82,9 +133,9 @@ def run_query(query_name):
 
     ) as f:
 
-        # ----------------------------------------------
-        # separator between runs
-        # ----------------------------------------------
+        # ------------------------------------------------
+        # resume separator
+        # ------------------------------------------------
 
         if file_exists:
 
@@ -121,9 +172,9 @@ def run_query(query_name):
                 + "\n\n"
             )
 
-        # ----------------------------------------------
+        # ------------------------------------------------
         # timestamp
-        # ----------------------------------------------
+        # ------------------------------------------------
 
         f.write(
 
@@ -135,18 +186,47 @@ def run_query(query_name):
         f.flush()
 
         # ==================================================
+        # environment variables
+        # ==================================================
+
+        env=dict(
+            os.environ
+        )
+
+        env[
+            "GT_LOGFILE_MODE"
+        ]="1"
+
+        env[
+            "GT_TOTAL_QUERY_JOBS"
+        ]=str(
+            len(QUERIES)
+        )
+
+        env[
+            "GT_QUERY_JOB_INDEX"
+        ]=str(
+            QUERIES.index(
+                query_name
+            )+1
+        )
+
+        # ==================================================
         # execute
         # ==================================================
 
-        env=dict(os.environ)
-        env["GT_LOGFILE_MODE"]="1"
-
         result=subprocess.run(
+
             cmd,
+
             stdout=f,
+
             stderr=subprocess.STDOUT,
+
             text=True,
+
             env=env,
+
         )
 
         # ==================================================
@@ -173,7 +253,7 @@ def run_query(query_name):
 
         f.write(
             f"ELAPSED : "
-            f"{elapsed:.2f} sec\n"
+            f"{format_duration(elapsed)}\n"
         )
 
         f.write(
@@ -211,24 +291,34 @@ def run_query(query_name):
 
 if __name__=="__main__":
 
+    overall_start=time.time()
+
     print()
 
     print("="*70)
+
     print(
+
         f"Running "
         f"{len(QUERIES)} "
         f"queries"
+
     )
 
     print(
         f"Workers={MAX_WORKERS}"
     )
+
     print("="*70)
 
     futures=[]
 
+    completed=0
+
     with ProcessPoolExecutor(
+
         max_workers=MAX_WORKERS
+
     ) as executor:
 
         for q in QUERIES:
@@ -242,40 +332,101 @@ if __name__=="__main__":
 
             )
 
-
         for future in as_completed(
-                futures
+            futures
         ):
 
             result=future.result()
 
+            completed+=1
+
             status=(
+
                 "SUCCESS"
+
                 if result[
                     "returncode"
                 ]==0
+
                 else "FAILED"
+
             )
 
             print()
 
             print(
+
                 f"[{status}] "
                 f"{result['query']}"
+
             )
 
             print(
-                f"Time:"
-                f"{result['time']:.2f}s"
+
+                f"Time: "
+                f"{format_duration(result['time'])}"
+
             )
 
             print(
-                f"Log:"
+                f"Log: "
                 f"{result['log']}"
             )
 
+            # ==================================================
+            # overall ETA
+            # ==================================================
+
+            elapsed=(
+                time.time()
+                -
+                overall_start
+            )
+
+            progress=(
+                completed
+                /
+                len(QUERIES)
+            )
+
+            if progress>0:
+
+                total_est=(
+                    elapsed
+                    /
+                    progress
+                )
+
+                eta=(
+                    total_est
+                    -
+                    elapsed
+                )
+
+                print(
+
+                    f"Overall ETA: "
+                    f"{format_duration(eta)}"
+
+                )
+
+    total_elapsed=(
+        time.time()
+        -
+        overall_start
+    )
 
     print()
+
     print("="*70)
-    print("ALL FINISHED")
+
+    print(
+        "ALL FINISHED"
+    )
+
+    print(
+        f"Total Time: "
+        f"{format_duration(total_elapsed)}"
+    )
+
     print("="*70)

@@ -2,6 +2,9 @@
 # scripts/build_gt.py
 # =========================================================
 
+
+#===========================================================
+# Logging setup
 import os
 
 LOGFILE_MODE=(
@@ -10,6 +13,26 @@ LOGFILE_MODE=(
         "0"
     )=="1"
 )
+#===========================================================
+
+
+#===========================================================
+# Multi Query ETA Support
+TOTAL_QUERY_JOBS=int(
+    os.environ.get(
+        "GT_TOTAL_QUERY_JOBS",
+        "1"
+    )
+)
+
+QUERY_JOB_INDEX=int(
+    os.environ.get(
+        "GT_QUERY_JOB_INDEX",
+        "1"
+    )
+)
+#===========================================================
+
 
 #===========================================================
 # CLI Arguements helper for running multiple queries
@@ -57,6 +80,7 @@ from importlib import import_module
 import importlib.util
 from tqdm import tqdm
 import sys
+from collections import deque
 import config_gt
 
 # from config_gt import (
@@ -101,6 +125,55 @@ import importlib.util
 # Import comparator for plan hashing
 from tpch.utils.comparator import structural_hash, plan_tree_str
 
+
+# =========================================================
+# Helper for Human-readable time duration
+# =========================================================
+
+def format_duration(seconds):
+
+    seconds=max(
+        int(seconds),
+        0
+    )
+
+    days,remainder=divmod(
+        seconds,
+        86400
+    )
+
+    hours,remainder=divmod(
+        remainder,
+        3600
+    )
+
+    minutes,seconds=divmod(
+        remainder,
+        60
+    )
+
+    parts=[]
+
+    if days>0:
+        parts.append(
+            f"{days}d"
+        )
+
+    if hours>0 or days>0:
+        parts.append(
+            f"{hours}h"
+        )
+
+    if minutes>0 or hours>0 or days>0:
+        parts.append(
+            f"{minutes}m"
+        )
+
+    parts.append(
+        f"{seconds}s"
+    )
+
+    return " ".join(parts)
 
 # ===================================================
 # Resolve Sampling Methods to run
@@ -869,25 +942,77 @@ for CURRENT_METHOD in METHODS_TO_RUN:
                 f"Caching {table}.{column}"
             )
 
-            cur=conn.cursor()
+            # ======================================
+            # estimate row count
+            # ======================================
+
+            count_cur=conn.cursor()
+
+            count_cur.execute(
+                f"""
+                SELECT COUNT({column})
+                FROM {table}
+                """
+            )
+
+            total_rows=count_cur.fetchone()[0]
+
+            count_cur.close()
+
+            # ======================================
+            # stream sorted values
+            # ======================================
+
+            cur=conn.cursor(
+                name=f"cursor_{table}_{column}"
+            )
+
+            cur.itersize=100000
 
             cur.execute(
                 f"""
                 SELECT {column}
                 FROM {table}
+                WHERE {column} IS NOT NULL
                 ORDER BY {column}
                 """
             )
 
-            vals=[
+            vals=[]
 
-                r[0]
+            pbar=tqdm(
 
-                for r in cur.fetchall()
+                total=total_rows,
 
-                if r[0] is not None
+                desc=(
+                    f"Cache "
+                    f"{table}.{column}"
+                ),
 
-            ]
+                unit="row",
+
+                disable=LOGFILE_MODE
+            )
+
+            while True:
+
+                batch=cur.fetchmany(
+                    100000
+                )
+
+                if not batch:
+                    break
+
+                vals.extend(
+                    r[0]
+                    for r in batch
+                )
+
+                pbar.update(
+                    len(batch)
+                )
+
+            pbar.close()
 
             cur.close()
 
@@ -899,6 +1024,7 @@ for CURRENT_METHOD in METHODS_TO_RUN:
                 f"Cached {len(vals):,} values"
             )
 
+        
 
         vals=SELECTIVITY_CACHE[
             cache_key
@@ -911,9 +1037,7 @@ for CURRENT_METHOD in METHODS_TO_RUN:
 
 
         # ======================================
-        # exact:
-        #
-        # P(X<=value)
+        # Exact values : P(X<=value)
         # ======================================
 
         idx=bisect.bisect_right(
@@ -1073,6 +1197,12 @@ for CURRENT_METHOD in METHODS_TO_RUN:
     # Persistent cache for 3 runs per parameter combination
     # =========================================================
     all_temp_runs = {combo: [] for combo in all_combinations}
+
+    # =========================================================
+    # GLOBAL ETAs
+    # =========================================================
+    method_start=time.time()
+    recent_times=deque(maxlen=200)
 
     # =========================================================
     # Run all queries config_gt.TOTAL_ROUNDS times (discard warmup)
@@ -1266,20 +1396,52 @@ for CURRENT_METHOD in METHODS_TO_RUN:
 
             # ======================================================
             # LOGS
+            recent_times.append(execution_time)
+            avg_ms=sum(recent_times)/max(len(recent_times),1)
+
+            # ROUND ETA
+            round_completed=(completed_queries%len(all_combinations))
+            round_remaining=(len(all_combinations)-round_completed)
+            round_eta_sec=(avg_ms*round_remaining)/1000
+
+            # METHOD ETA
+            method_remaining=(total_queries-completed_queries)
+            method_eta_sec=(avg_ms*method_remaining)/1000
+
+            # WHOLE QUERY ETA
+            query_elapsed=(time.time()-script_start_perf)
+            query_progress=(completed_queries/total_queries)
+
+            if query_progress>0:
+                query_total_est=(query_elapsed/query_progress)
+                query_eta_sec=(query_total_est-query_elapsed)
+            else:
+                query_eta_sec=np.nan
+
+            # ALL MULTI QUERY ETA
+            all_queries_eta_sec=(query_eta_sec*TOTAL_QUERY_JOBS)
+
+            # =====================================================
             completed_queries+=1
             newly_done=(completed_queries-len(completed_runs)+1)
             elapsed=(time.time()-global_start)
             avg_time=elapsed/max(newly_done,1)
-            remaining=(total_queries-completed_queries)
-            eta_seconds = avg_time * remaining
-            eta_minutes = eta_seconds / 60
+            # =====================================================
 
             if not LOGFILE_MODE:
                 combo_pbar.set_postfix({
                     "runtime_ms":
-                    f"{execution_time:.2f}",
-                    "eta_min":
-                    f"{eta_minutes:.1f}"
+                    f"{execution_time:.1f}",
+                    "elapsed_mins":
+                    f"{(elapsed/60):.1f}",
+                    "round_eta":
+                    format_duration(round_eta_sec),
+                    "method_eta":
+                    format_duration(method_eta_sec),
+                    "query_eta":
+                    format_duration(query_eta_sec),
+                    "all_eta":
+                    format_duration(all_queries_eta_sec),
                 })
             else:
                 # clean logfile progress
@@ -1297,9 +1459,19 @@ for CURRENT_METHOD in METHODS_TO_RUN:
                         f"] "
                         f"runtime_ms="
                         f"{execution_time:.2f} "
-                        f"eta_min="
-                        f"{eta_minutes:.1f}"
+                        "elapsed_mins:"
+                        f"{(elapsed/60):.1f} ",
+                        "round_eta:"
+                        f"{format_duration(round_eta_sec)} "
+                        "method_eta:"
+                        f"{format_duration(method_eta_sec)} "
+                        "query_eta:"
+                        f"{format_duration(query_eta_sec)} "
+                        "all_eta:"
+                        f"{format_duration(all_queries_eta_sec)} "
                     )
+
+
             # ======================================================
 
             if round_id >= config_gt.WARMUP_ROUND:
