@@ -10,6 +10,7 @@ from concurrent.futures import (
 from pathlib import Path
 import subprocess
 import time
+import os
 
 
 # ======================================
@@ -137,15 +138,15 @@ def run_query(query_name):
         # execute
         # ==================================================
 
+        env=dict(os.environ)
+        env["GT_LOGFILE_MODE"]="1"
+
         result=subprocess.run(
-
             cmd,
-
             stdout=f,
             stderr=subprocess.STDOUT,
-
-            text=True
-
+            text=True,
+            env=env,
         )
 
         # ==================================================

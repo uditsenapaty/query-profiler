@@ -2,6 +2,15 @@
 # scripts/build_gt.py
 # =========================================================
 
+import os
+
+LOGFILE_MODE=(
+    os.environ.get(
+        "GT_LOGFILE_MODE",
+        "0"
+    )=="1"
+)
+
 #===========================================================
 # CLI Arguements helper for running multiple queries
 import argparse
@@ -40,7 +49,6 @@ import time
 import json
 import sqlparse
 import sys
-import os
 from pathlib import Path
 from decimal import Decimal
 from itertools import product
@@ -48,6 +56,7 @@ from datetime import datetime, timedelta
 from importlib import import_module
 import importlib.util
 from tqdm import tqdm
+import sys
 import config_gt
 
 # from config_gt import (
@@ -1015,7 +1024,7 @@ for CURRENT_METHOD in METHODS_TO_RUN:
                 desc=f"{param} selectivities",
                 unit="point",
                 leave=False,
-                disable=not sys.stdout.isatty()
+                disable=LOGFILE_MODE
             ):
 
                 s=get_axis_selectivity(
@@ -1181,7 +1190,7 @@ for CURRENT_METHOD in METHODS_TO_RUN:
         all_combinations,
         desc="Caching queries",
         unit="query",
-        disable=not sys.stdout.isatty()
+        disable=LOGFILE_MODE
     ):
 
         combo_queries[combo]=(
@@ -1211,7 +1220,7 @@ for CURRENT_METHOD in METHODS_TO_RUN:
 
         print(f"\n--- Round {round_id + 1} ---\n")
 
-        IS_TTY=sys.stdout.isatty()
+        IS_TTY=(sys.stdout.isatty() and sys.stderr.isatty())
         combo_pbar=tqdm(
             all_combinations,
             desc=(
@@ -1219,7 +1228,7 @@ for CURRENT_METHOD in METHODS_TO_RUN:
                 f"Round {round_id+1}"
             ),
             unit="combo",
-            disable=not IS_TTY
+            disable=LOGFILE_MODE
         )
 
         for combo in combo_pbar:
@@ -1265,7 +1274,7 @@ for CURRENT_METHOD in METHODS_TO_RUN:
             eta_seconds = avg_time * remaining
             eta_minutes = eta_seconds / 60
 
-            if IS_TTY:
+            if not LOGFILE_MODE:
                 combo_pbar.set_postfix({
                     "runtime_ms":
                     f"{execution_time:.2f}",
