@@ -1475,11 +1475,11 @@ for CURRENT_METHOD in METHODS_TO_RUN:
                     # format_duration(method_elapsed_sec),
                     "q":
                     format_duration(query_elapsed_sec),
-                    "all":
-                    format_duration(all_elapsed_sec),
+                    # "all":
+                    # format_duration(all_elapsed_sec),
                     "ETAs-> "
-                    # "m":
-                    # format_duration(method_eta_sec),
+                    "m":
+                    format_duration(method_eta_sec),
                     "q":
                     format_duration(query_eta_sec),
                     # "all":

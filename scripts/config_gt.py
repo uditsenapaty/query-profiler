@@ -126,7 +126,7 @@ def get_active_methods():
 # 6. Result directories
 # =========================================================
 
-MAIN_DIR=Path( f"gt_results_{SF}_{QUERY}" )
+MAIN_DIR=Path( f"gt_results_sf{SF}_{QUERY}" )
 
 RESULTS_DIR=None
 PLANS_DIR=None
