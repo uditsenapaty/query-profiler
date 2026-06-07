@@ -84,15 +84,15 @@ METHOD_CONFIGS = {
         }
     },
 
-    "m3":{
+    # "m3":{
 
-        "sampler":"sampler_selectivity_m3",
-        "resolution":{
-            "default":DEF_RES_ALL,
-            "p1": P1_RES_ALL,
-            "p2": P2_RES_ALL,
-        }
-    },
+    #     "sampler":"sampler_selectivity_m3",
+    #     "resolution":{
+    #         "default":DEF_RES_ALL,
+    #         "p1": P1_RES_ALL,
+    #         "p2": P2_RES_ALL,
+    #     }
+    # },
 
 }
 
