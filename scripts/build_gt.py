@@ -577,43 +577,6 @@ for CURRENT_METHOD in METHODS_TO_RUN:
         ]
     )
 
-    # =====================================================
-    # Remove stale completed runs with missing traces
-    # =====================================================
-
-    valid_completed=set()
-
-    for key in completed_runs:
-
-        try:
-
-            parts=key.split("_",1)
-
-            combo_part=parts[1]
-
-            combo_vals=tuple(
-                combo_part.split("|")
-            )
-
-            combo_filename=make_combo_filename(
-                combo_vals
-            )
-
-            trace_path=(
-                config_gt.TRACES_DIR
-                /
-                f"{combo_filename}_trace.json"
-            )
-
-            if trace_path.exists():
-
-                valid_completed.add(key)
-
-        except Exception:
-            continue
-
-    completed_runs=valid_completed
-
     resume_state["completed"]=list(
         completed_runs
     )
@@ -1402,7 +1365,9 @@ for CURRENT_METHOD in METHODS_TO_RUN:
 
             valid_completed_runs.add(key)
 
-    completed_runs=valid_completed_runs
+
+    # Merge trace recovery with resume file as resume_state is source of truth
+    completed_runs |= valid_completed_runs
 
     resume_state["completed"]=list(
         completed_runs
