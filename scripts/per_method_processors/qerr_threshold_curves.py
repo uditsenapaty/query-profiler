@@ -93,6 +93,8 @@ def run(results_dir):
 
         for _,row in sub.iterrows():
 
+            verdict = str(row[pcol]).upper()
+
             rows.append({
 
                 "axis":
@@ -102,9 +104,7 @@ def run(results_dir):
                 row[qcol],
 
                 "plan_change":
-                bool(
-                    row[pcol]
-                )
+                verdict == "STRUCTURAL"
             })
 
     merged=pd.DataFrame(

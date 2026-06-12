@@ -29,7 +29,7 @@ QUERIES=[
 ]
 
 # Number of queries running parallelly
-MAX_WORKERS=5
+MAX_WORKERS=1
 
 LOG_DIR=Path(
     "gt_run_logs"

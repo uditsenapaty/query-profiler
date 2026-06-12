@@ -1,0 +1,16 @@
+pandas
+numpy
+matplotlib
+scipy
+scikit-learn
+psycopg2-binary
+sqlalchemy
+sqlglot
+sqlparse
+tabpfn
+scikit-optimize
+jupyterlab
+tabulate
+python-pptx
+openpyxl
+tqdm

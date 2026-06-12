@@ -47,28 +47,17 @@ def _compute_r(
 
     def ratio(r):
 
-        num = (
-            0.5 +
-            sum(
-                r**i
-                for i in range(1,k)
-            )
+        num = sum(
+            r**i
+            for i in range(k)
         )
 
-        den = (
-            0.5 +
-            sum(
-                r**i
-                for i in range(
-                    1,
-                    n-1
-                )
-            )
-            +
-            0.5*(r**(n-1))
+        den = sum(
+            r**i
+            for i in range(n - 1)
         )
 
-        return num/den
+        return num / den
 
 
     lo=1.000001
@@ -94,68 +83,30 @@ def _compute_r(
 # Picasso selectivities
 # ==========================================================
 
-def _target_selectivities(
-        resolution):
+def _target_selectivities(resolution):
 
-    n=resolution+1
+    n = resolution + 1
 
-    r=_compute_r(
-        resolution
+    r = _compute_r(resolution)
+
+    widths = np.array(
+        [r**i for i in range(n - 1)],
+        dtype=float
     )
 
-    a=1.0
+    widths /= widths.sum()
 
-    cur=a
-    total=a/2
+    vals = [0.0]
 
+    cumulative = 0.0
 
-    for i in range(
-            1,
-            n+1):
+    for w in widths[:-1]:
+        cumulative += float(w)
+        vals.append(float(cumulative))
 
-        cur*=r
+    vals.append(1.0)
 
-        if i!=n:
-            total+=cur
-        else:
-            total+=cur/2
-
-
-    a=1/total
-
-
-    vals=[]
-
-    cur=a
-    cumulative=a/2
-
-
-    for i in range(
-            1,
-            n+1):
-
-        vals.append(
-            cumulative
-        )
-
-        cur*=r
-
-        inc=cur
-
-        if i==n:
-            inc/=2
-
-        cumulative+=inc
-
-
-    vals=np.array(vals)
-
-    vals/=vals[-1]
-
-    vals[0]=0.0
-    vals[-1]=1.0
-
-    return vals.tolist()
+    return [float(v) for v in vals]
 
 
 # ==========================================================

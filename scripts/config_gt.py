@@ -20,7 +20,7 @@ SF = setup_tpch.SF
 # Imports
 # Plan Comparator
 COMPARATOR_MODULE = "./tpch/utils/comparator.py"
-PLAN_HASH_METHOD = "structural_hash_md5"
+PLAN_HASH_METHOD = "structural_hash_sha256"
 
 # =========================================================
 # 2. SQL source 
@@ -118,9 +118,9 @@ GLOBAL_PROCESSOR_RES = "x".join(
 # 4. Sampling method
 # =========================================================
 # all  -> run all methods sequentially
-# m0   -> data-space
-# m1   -> selectivity uniform
-# m2   -> Picasso exponential
+# m0   -> data-space uniform resolution
+# m1   -> selectivity-space uniform resolution
+# m2   -> Picasso exponential resolution using Actual stats
 
 CURRENT_METHOD=None
 SAMPLING_METHOD = "all"
@@ -222,13 +222,10 @@ MAX_COMBINATIONS = 20000
 
 # Runs AFTER EACH method
 PER_METHOD_PROCESSORS=[
-    "grid_sample",
     "grid_qerr",
-    "grid_score",
     "grid_selectivity",
     "qerr_desc",
-    "qerr_desc_nb",
-    "summarised_instances",
+    "summarise",
     "qerr_threshold_curves",
     # "neighbor_analysis",
     # "qerr_stats",
@@ -239,6 +236,7 @@ PER_METHOD_PROCESSORS=[
 GLOBAL_PROCESSORS=[
     "compare_sampling_grid",
     "compare_sampling_grid_nb",
+    "summary_global",
     # "compare_methods",
     # "merge_all",
     # "build_dashboard",

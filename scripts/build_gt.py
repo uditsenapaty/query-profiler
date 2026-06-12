@@ -1379,7 +1379,7 @@ for CURRENT_METHOD in METHODS_TO_RUN:
 
     print(
         f"Validated "
-        f"{len(completed_runs)} "
+        f"{len(completed_runs)}/{len(all_combinations)*config_gt.TOTAL_ROUNDS} "
         f"completed runs from traces"
     )
 
