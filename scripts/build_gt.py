@@ -32,8 +32,8 @@ if os.environ.get("GT_RUN_MODE") == "multi":
             / f"{config_gt.QUERY}.sql"
         )
 
-        config_gt.MAIN_DIR = config_gt.Path(
-            f"gt_results_sf{config_gt.SF}_{config_gt.QUERY}{config_gt.RUN_SUFFIX}"
+        config_gt.QUERY_DIR = config_gt.Path(
+            f"{config_gt.QUERY}"
         )
 # ===========================================================
 
@@ -2593,7 +2593,7 @@ for processor in config_gt.GLOBAL_PROCESSORS:
 
     run_processor(
         processor, "global_processors",
-        config_gt.MAIN_DIR / config_gt.GLOBAL_PROCESSOR_RES,
+        config_gt.MAIN_DIR / config_gt.QUERY_DIR,
     )
 
     # --------------------------------
@@ -2603,13 +2603,13 @@ for processor in config_gt.GLOBAL_PROCESSORS:
     # if processor=="compare_methods":
     #
     #     compare_methods(
-    #         config_gt.MAIN_DIR
+    #         config_gt.QUERY_DIR
     #     )
     #
     # elif processor=="merge_all":
     #
     #     merge_all(
-    #         config_gt.MAIN_DIR
+    #         config_gt.QUERY_DIR
     #     )
     
 

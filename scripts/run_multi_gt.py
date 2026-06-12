@@ -13,6 +13,8 @@ import subprocess
 import time
 import os
 
+import summary_all
+
 
 # ======================================
 # Config
@@ -29,15 +31,23 @@ QUERIES=[
 ]
 
 # Number of queries running parallelly
-MAX_WORKERS=1
+MAX_WORKERS = 5
 
-LOG_DIR=Path(
-    "gt_run_logs"
+os.environ["GT_RUN_SUFFIX"] = (
+    f"_m{MAX_WORKERS}"
+    if MAX_WORKERS != 1
+    else "_s"
 )
 
-LOG_DIR.mkdir(
-    exist_ok=True
-)
+import config_gt
+
+# LOG_DIR=Path(
+#     "gt_run_logs"
+# )
+
+# LOG_DIR.mkdir(
+#     exist_ok=True
+# )
 
 
 # =========================================================
@@ -98,10 +108,19 @@ def run_query(query_name):
 
     start=time.time()
 
-    log_file=(
-        LOG_DIR
-        /
-        f"{query_name}.log"
+    query_dir = (
+        config_gt.MAIN_DIR
+        / f"{query_name}"
+    )
+
+    query_dir.mkdir(
+        parents=True,
+        exist_ok=True
+    )
+
+    log_file = (
+        query_dir
+        / f"{query_name}.log"
     )
 
     cmd=[
@@ -189,32 +208,15 @@ def run_query(query_name):
         # environment variables
         # ==================================================
 
-        env=dict(
-            os.environ
-        )
+        env=dict(os.environ)
+        
         env["GT_RUN_MODE"] = "multi"
+        env["GT_LOGFILE_MODE"]="1"
+        env["GT_TOTAL_QUERY_JOBS"]=str(len(QUERIES))
+        env["GT_QUERY_JOB_INDEX"]=str(QUERIES.index(query_name)+1)
+        env["GT_RUN_SUFFIX"] = os.environ["GT_RUN_SUFFIX"]
 
-        env[
-            "GT_LOGFILE_MODE"
-        ]="1"
-
-        env[
-            "GT_TOTAL_QUERY_JOBS"
-        ]=str(
-            len(QUERIES)
-        )
-
-        env[
-            "GT_QUERY_JOB_INDEX"
-        ]=str(
-            QUERIES.index(
-                query_name
-            )+1
-        )
-
-        GLOBAL_START_TS=str(
-            time.time()
-        )
+        GLOBAL_START_TS=str(time.time())
         env["GT_GLOBAL_START"]=GLOBAL_START_TS
 
         # ==================================================
@@ -222,17 +224,11 @@ def run_query(query_name):
         # ==================================================
 
         result=subprocess.run(
-
             cmd,
-
             stdout=f,
-
             stderr=subprocess.STDOUT,
-
             text=True,
-
             env=env,
-
         )
 
         # ==================================================
@@ -300,21 +296,15 @@ if __name__=="__main__":
     overall_start=time.time()
 
     print()
-
     print("="*70)
-
     print(
-
         f"Running "
         f"{len(QUERIES)} "
         f"queries"
-
     )
-
     print(
         f"Workers={MAX_WORKERS}"
     )
-
     print("="*70)
 
     futures=[]
@@ -427,7 +417,7 @@ if __name__=="__main__":
     print("="*70)
 
     print(
-        "ALL FINISHED"
+        "ALL QUERY FINISHED"
     )
 
     print(
@@ -436,3 +426,15 @@ if __name__=="__main__":
     )
 
     print("="*70)
+
+    print()
+    print("=" * 70)
+    print("SUMMARISING WHOLE RUN")
+    print("=" * 70)
+
+    summary_all.run(Path.cwd())
+
+    print()
+    print(
+        f"WHOLE RUN SUMMARISED at {config_gt.MAIN_DIR}/summaries"
+    )

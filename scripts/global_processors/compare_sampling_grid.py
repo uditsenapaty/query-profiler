@@ -39,16 +39,16 @@ GRID_WIDTH=1.5
 POINT_SIZE=60
 
 
-def run(main_dir):
+def run(query_dir):
 
-    main_dir=Path(main_dir)
+    query_dir=Path(query_dir)
 
     methods=[]
 
     for m in config_gt.RUN_METHODS:
 
         gt_file=(
-            main_dir
+            query_dir
             / m
             / "ground_truth.csv"
         )
@@ -71,7 +71,7 @@ def run(main_dir):
     if len(methods)==0:
 
         print(
-            f"No ground_truth.csv files found under {main_dir}"
+            f"No ground_truth.csv files found under {query_dir}"
         )
 
         return
@@ -203,7 +203,7 @@ def run(main_dir):
     plt.tight_layout()
 
     out=(
-        main_dir/ 
+        query_dir/ 
         "sampling_grid_compare.png"
     )
 
@@ -225,5 +225,5 @@ def run(main_dir):
 if __name__=="__main__":
 
     run(
-        config_gt.MAIN_DIR / config_gt.GLOBAL_PROCESSOR_RES
+        config_gt.MAIN_DIR / config_gt.QUERY_DIR
     )

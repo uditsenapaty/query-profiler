@@ -1,5 +1,5 @@
 """
-comparator.py — Structural plan comparison & hashing.
+comparator_old.py — Structural plan comparison & hashing.
 
 Determines whether two PostgreSQL execution plans are structurally
 identical by extracting shape-defining keys, normalizing literals,

@@ -5,7 +5,7 @@
 # into one wide table, one column per method.
 #
 # Called by build_gt.py as a global processor:
-#   run(config_gt.MAIN_DIR / config_gt.GLOBAL_PROCESSOR_RES)
+#   run(config_gt.QUERY_DIR / config_gt.GLOBAL_PROCESSOR_RES)
 #
 # Input layout expected under results_dir:
 #   {results_dir}/m0/summary.csv
@@ -203,5 +203,5 @@ def run(results_dir):
 
 if __name__ == "__main__":
     import sys
-    path = sys.argv[1] if len(sys.argv) > 1 else "gt_results_sf10_qt8_s/10x10"
+    path = sys.argv[1] if len(sys.argv) > 1 else "gt_results_sf10_10x10/qt8_s"
     run(path)

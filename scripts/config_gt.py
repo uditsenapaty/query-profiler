@@ -165,16 +165,16 @@ IS_MULTI_RUN=(
     == "1"
 )
 
-RUN_SUFFIX=(
-    "_m"
-    if IS_MULTI_RUN
-    else "_s"
+RUN_SUFFIX = (
+    os.environ.get(
+        "GT_RUN_SUFFIX",
+        "_s"
+    )
 )
 
-# Main result directory
-MAIN_DIR=Path(
-    f"gt_results_sf{SF}_{QUERY}{RUN_SUFFIX}"
-)
+# Query result directory
+QUERY_DIR=Path(f"{QUERY}")
+MAIN_DIR=Path(f"gt_results_sf{SF}_{GLOBAL_PROCESSOR_RES}{RUN_SUFFIX}")
 
 RESULTS_DIR=None
 PLANS_DIR=None
@@ -187,7 +187,7 @@ def get_method_dir(method, resolution):
 
     return (
         MAIN_DIR
-        / str(resolution)
+        / QUERY_DIR
         / method
     )
 

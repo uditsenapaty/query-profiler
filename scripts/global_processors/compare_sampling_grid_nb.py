@@ -43,19 +43,19 @@ POINT_SIZE=60
 # callable
 # ======================================
 
-def run(main_dir=None):
+def run(query_dir=None):
 
-    if main_dir is None:
-        main_dir=config_gt.MAIN_DIR
+    if query_dir is None:
+        query_dir=config_gt.QUERY_DIR
 
-    main_dir=Path(main_dir)
+    query_dir=Path(query_dir)
 
     methods=[]
 
     for m in config_gt.RUN_METHODS:
 
         gt_file=(
-            main_dir
+            query_dir
             / m
             / "ground_truth.csv"
         )
@@ -78,7 +78,7 @@ def run(main_dir=None):
     if len(methods)==0:
 
         print(
-            f"No ground_truth.csv files found under {main_dir}"
+            f"No ground_truth.csv files found under {query_dir}"
         )
 
         return
@@ -282,7 +282,7 @@ def run(main_dir=None):
 
     out=(
 
-        main_dir/
+        query_dir/
         "sampling_grid_compare_nb.png"
 
     )
@@ -309,4 +309,4 @@ def run(main_dir=None):
 
 if __name__=="__main__":
 
-    run(config_gt.MAIN_DIR / config_gt.GLOBAL_PROCESSOR_RES)
+    run(config_gt.MAIN_DIR / config_gt.QUERY_DIR)
