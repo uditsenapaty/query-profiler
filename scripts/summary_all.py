@@ -136,6 +136,7 @@ def _discover_summaries(base: Path) -> dict:
             continue
 
         resolution = gt_match.group("resolution")
+        run_type = gt_match.group("run_type").lower()
 
         for query_dir in sorted(gt_root.iterdir()):
             if not query_dir.is_dir():
@@ -146,7 +147,8 @@ def _discover_summaries(base: Path) -> dict:
                 continue
 
             query = qmatch.group("query")
-            run_type = qmatch.group("run_type").lower()
+
+            # query = query_dir.name
 
             for method_dir in sorted(query_dir.iterdir()):
                 if not method_dir.is_dir():
