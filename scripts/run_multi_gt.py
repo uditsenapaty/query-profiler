@@ -15,6 +15,7 @@ import os
 
 import summary_all
 
+import config_gt
 
 # ======================================
 # Config
@@ -30,13 +31,10 @@ QUERIES=[
 
 ]
 
-# Number of queries running parallelly
-MAX_WORKERS = 5
-
 os.environ["GT_RUN_SUFFIX"] = (
-    f"_m{MAX_WORKERS}"
-    if MAX_WORKERS != 1
-    else "_s"
+    f"_s{config_gt.SYSTEM_WORKERS}q{config_gt.QUERY_WORKERS}"
+    if config_gt.SYSTEM_WORKERS != 1
+    else f"_s1q{config_gt.QUERY_WORKERS}"
 )
 
 import config_gt
@@ -303,8 +301,11 @@ if __name__=="__main__":
         f"queries"
     )
     print(
-        f"Workers={MAX_WORKERS}"
+        f"System workers={config_gt.SYSTEM_WORKERS}"
     )
+    print(
+        f"Query workers={config_gt.QUERY_WORKERS}"
+    )    
     print("="*70)
 
     futures=[]
@@ -313,7 +314,7 @@ if __name__=="__main__":
 
     with ProcessPoolExecutor(
 
-        max_workers=MAX_WORKERS
+        max_workers=config_gt.SYSTEM_WORKERS
 
     ) as executor:
 

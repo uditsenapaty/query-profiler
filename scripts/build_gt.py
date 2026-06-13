@@ -95,23 +95,6 @@ LOGFILE_MODE=(
         "0"
     )=="1"
 )
-
-# LOG_DIR=Path("gt_run_logs")
-# LOG_DIR.mkdir(exist_ok=True)
-
-# query_name=config_gt.QUERY
-
-# log_path=LOG_DIR / f"{query_name}.log"
-
-# log_f=open(
-#     log_path,
-#     "a",
-#     buffering=1,
-#     encoding="utf-8"
-# )
-
-# sys.stdout=Tee(sys.__stdout__,log_f)
-# sys.stderr=Tee(sys.__stderr__,log_f)
 #===========================================================
 
 
@@ -533,10 +516,14 @@ for CURRENT_METHOD in METHODS_TO_RUN:
     # FOR STABILITY
     setup_cur = conn.cursor()
     setup_cur.execute("SET jit = off;")
-    setup_cur.execute("SET max_parallel_workers_per_gather = 0;")
+    setup_cur.execute(f"SET max_parallel_workers_per_gather = {config_gt.QUERY_WORKERS};")
     setup_cur.execute("SET track_io_timing = on;")
     setup_cur.execute("SET enable_partitionwise_join = off;")
     setup_cur.execute("SET enable_partitionwise_aggregate = off;")
+    setup_cur.execute("SET enable_memoize = off;")
+    setup_cur.execute("SET enable_async_append = off;")
+    setup_cur.execute("SET geqo = off;")
+    setup_cur.execute("SET work_mem = '256MB';")
     setup_cur.close()
 
     # =========================================================

@@ -22,6 +22,10 @@ SF = setup_tpch.SF
 COMPARATOR_MODULE = "./tpch/utils/comparator.py"
 PLAN_HASH_METHOD = "structural_hash_sha256"
 
+# Parallellism Support for Query runs
+SYSTEM_WORKERS = 1 # MIN 1 
+QUERY_WORKERS = 2 # MIN 0 / DEFAULT 2
+
 # =========================================================
 # 2. SQL source 
 # =========================================================
@@ -168,7 +172,7 @@ IS_MULTI_RUN=(
 RUN_SUFFIX = (
     os.environ.get(
         "GT_RUN_SUFFIX",
-        "_s"
+        f"_s1q{QUERY_WORKERS}"
     )
 )
 
