@@ -172,7 +172,8 @@ def sample(
         conn,
         table,
         column,
-        resolution):
+        resolution,
+        lower_bound=None):
 
     sels=(
         _target_selectivities(
@@ -191,6 +192,11 @@ def sample(
             ORDER BY {col}
         )
         FROM {tbl}
+        WHERE (
+            %s IS NULL
+            OR
+            {col} >= %s
+        )
         """
     ).format(
         col=sql.Identifier(
@@ -206,7 +212,11 @@ def sample(
 
     cur.execute(
         query,
-        (sels,)
+        (
+            sels,
+            lower_bound,
+            lower_bound
+        )
     )
 
     values=(

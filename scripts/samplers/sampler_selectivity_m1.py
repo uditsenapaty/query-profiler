@@ -21,7 +21,7 @@ def _target_selectivities(resolution):
     ]
 
 
-def sample(conn,table,column,resolution):
+def sample(conn,table,column,resolution,lower_bound=None):
 
     sels=_target_selectivities(
         resolution
@@ -33,6 +33,11 @@ def sample(conn,table,column,resolution):
             ORDER BY {col}
         )
         FROM {tbl}
+        WHERE (
+            %s IS NULL
+            OR
+            {col} >= %s
+        )
     """).format(
         col=sql.Identifier(column),
         tbl=sql.Identifier(table)
@@ -42,7 +47,11 @@ def sample(conn,table,column,resolution):
 
     cur.execute(
         query,
-        (sels,)
+        (
+            sels,
+            lower_bound,
+            lower_bound
+        )
     )
 
     values=cur.fetchone()[0]

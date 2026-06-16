@@ -44,7 +44,6 @@ import numpy as np
 import time
 import json
 import sqlparse
-import sys
 from pathlib import Path
 from decimal import Decimal
 from itertools import product
@@ -52,38 +51,17 @@ from datetime import datetime, timedelta
 from importlib import import_module
 import importlib.util
 from tqdm import tqdm
-import sys
 from collections import deque
 import config_gt
 import re
 import psycopg2
 import psycopg2.sql as sql
 from tpch_query_parser import TPCHQueryParser
-import importlib.util
+import sys
 
 # Import comparator for plan hashing
 from tpch.utils.comparator import structural_hash, plan_tree_str
 
-
-# =====================================================
-# Tee logger
-# =====================================================
-# import sys
-# from pathlib import Path
-
-# class Tee:
-
-#     def __init__(self,*files):
-#         self.files=files
-
-#     def write(self,data):
-#         for f in self.files:
-#             f.write(data)
-#             f.flush()
-
-#     def flush(self):
-#         for f in self.files:
-#             f.flush()
 
 #===========================================================
 # Logging setup
@@ -126,7 +104,6 @@ GLOBAL_ALL_START=float(
 # =========================================================
 # Helper for Human-readable time duration
 # =========================================================
-
 def format_duration(seconds):
 
     # =====================================================
@@ -197,13 +174,11 @@ def format_duration(seconds):
 # ===================================================
 # Resolve Sampling Methods to run
 # ===================================================
-
 METHODS_TO_RUN=config_gt.get_active_methods()
 
 # =====================================================
 # Helper for processing results
 # =====================================================
-
 def run_processor(name, processor_dir, arg):
 
     processor_path=(
@@ -243,7 +218,6 @@ def run_processor(name, processor_dir, arg):
 # =====================================================
 # Helpers to Resume Script Run
 # =====================================================
-
 def run_missing_processors():
 
     resume_state = load_resume_state()
@@ -448,11 +422,10 @@ def json_serializer(obj):
 # =========================================================
 # Selectivity cache (table.column -> sorted values)
 # =========================================================
-
 SELECTIVITY_CACHE={}
 
 # =========================================================
-# Connect to tpch database
+# Helper for Connecting to tpch database
 # =========================================================
 
 def get_conn(dbname):
@@ -464,56 +437,637 @@ def get_conn(dbname):
     )
 
 
+# =======================================================
+# Helper for Robust Cardinality compute
+# (Predicate surviving) for Picasso Queries Q(5,7,8,10,16)
+# =======================================================
+def make_count_query(sql_query):
+
+    # -----------------------------------------
+    # remove -- comments
+    # -----------------------------------------
+    q = re.sub(
+        r'--.*?$',
+        '',
+        sql_query,
+        flags=re.M
+    ).strip().rstrip(";")
+
+    # -----------------------------------------
+    # replace outer SELECT ... FROM
+    # -----------------------------------------
+    m = re.search(
+        r'(?is)\bselect\b',
+        q
+    )
+
+    if m is None:
+        raise RuntimeError("No SELECT found")
+
+    depth = 0
+    from_pos = None
+
+    i = m.end()
+
+    while i < len(q):
+
+        c = q[i]
+
+        if c == '(':
+            depth += 1
+
+        elif c == ')':
+            depth -= 1
+
+        elif depth == 0:
+
+            if q[i:i+4].upper() == "FROM":
+
+                before = (
+                    i == 0
+                    or
+                    not q[i-1].isalnum()
+                )
+
+                after = (
+                    i+4 == len(q)
+                    or
+                    not q[i+4].isalnum()
+                )
+
+                if before and after:
+
+                    from_pos = i
+                    break
+
+        i += 1
+
+    if from_pos is None:
+        raise RuntimeError(
+            "Could not locate top-level FROM"
+        )
+
+    q = (
+        "SELECT COUNT(*) "
+        + q[from_pos:]
+    )
+
+    # -----------------------------------------
+    # remove top-level GROUP BY / ORDER BY
+    # -----------------------------------------
+    depth = 0
+    cut_pos = len(q)
+
+    i = 0
+
+    while i < len(q):
+
+        c = q[i]
+
+        if c == '(':
+            depth += 1
+
+        elif c == ')':
+            depth -= 1
+
+        elif depth == 0:
+
+            s = q[i:].upper()
+
+            if s.startswith("GROUP BY"):
+                cut_pos = i
+                break
+
+            if s.startswith("ORDER BY"):
+                cut_pos = i
+                break
+
+        i += 1
+
+    q = q[:cut_pos].strip()
+
+    return q
+
+# ==========================================================================
+# Find Minimum value for each axis for non 0 predicate surviving cardinality
+# ==========================================================================
+def find_min_positive_point_nd(
+        card_fn,
+        ndim,
+        eps=1e-9,
+        max_sel=1.0,
+        tol=1e-9):
+
+    # ---------- diagonal expansion ----------
+    lo=0.0
+    hi=eps
+
+    while hi<=max_sel:
+
+        if card_fn([hi]*ndim)>0:
+            break
+
+        lo=hi
+        hi*=2
+
+    if hi>max_sel:
+        return None
+
+    # ---------- binary search diagonal ----------
+    while hi-lo>tol:
+
+        mid=(lo+hi)/2
+
+        if card_fn([mid]*ndim)>0:
+            hi=mid
+        else:
+            lo=mid
+
+    s=[hi]*ndim
+
+    # ---------- coordinate descent ----------
+    improved=True
+
+    while improved:
+
+        improved=False
+
+        for axis in range(ndim):
+
+            lo=0.0
+            hi=s[axis]
+
+            while hi-lo>tol:
+
+                mid=(lo+hi)/2
+
+                trial=s.copy()
+                trial[axis]=mid
+
+                if card_fn(trial)>0:
+                    hi=mid
+                else:
+                    lo=mid
+
+            if hi<s[axis]:
+                s[axis]=hi
+                improved=True
+
+    return s,card_fn(s)
+
+# =========================================================
+# Helper functions for file storage
+# =========================================================
+def sanitize(v):
+    s = str(v)
+    s = s.replace("/", "_")
+    s = s.replace(":", "_")
+    s = s.replace(" ", "_")
+    s = s.replace(".", "p")
+    return s[:50]
+
+def make_combo_filename(combo):
+    """Convert combo tuple to filename string."""
+    return "_".join([
+        f"x{i+1}_{sanitize(v)}"
+        for i, v in enumerate(combo)
+    ])
+
+
+# =========================================================
+# Helper for Plan traversal
+# =========================================================
+def traverse_plan(node, depth=0):
+    ops = []
+    node_type = node.get("Node Type", "UNKNOWN")
+    ops.append(node_type)
+    max_depth = depth
+
+    join_count = 0
+    scan_count = 0
+    hash_count = 0
+    sort_count = 0
+    aggregate_count = 0
+    parallel_count = 0
+
+    if "Join" in node_type or node_type == "Nested Loop":
+        join_count += 1
+    if "Scan" in node_type:
+        scan_count += 1
+    if "Hash" in node_type:
+        hash_count += 1
+    if "Sort" in node_type:
+        sort_count += 1
+    if "Aggregate" in node_type:
+        aggregate_count += 1
+    if "Parallel" in node_type:
+        parallel_count += 1
+
+    shared_hit = node.get("Shared Hit Blocks", 0)
+    shared_read = node.get("Shared Read Blocks", 0)
+    shared_dirtied = node.get("Shared Dirtied Blocks", 0)
+    temp_read = node.get("Temp Read Blocks", 0)
+    temp_written = node.get("Temp Written Blocks", 0)
+
+    for child in node.get("Plans", []):
+        (
+            child_ops,
+            child_depth,
+            child_join,
+            child_scan,
+            child_hash,
+            child_sort,
+            child_agg,
+            child_parallel,
+            child_hit,
+            child_read,
+            child_dirtied,
+            child_temp_read,
+            child_temp_written
+        ) = traverse_plan(child, depth + 1)
+
+        ops.extend(child_ops)
+        max_depth = max(max_depth, child_depth)
+        join_count += child_join
+        scan_count += child_scan
+        hash_count += child_hash
+        sort_count += child_sort
+        aggregate_count += child_agg
+        parallel_count += child_parallel
+        shared_hit += child_hit
+        shared_read += child_read
+        shared_dirtied += child_dirtied
+        temp_read += child_temp_read
+        temp_written += child_temp_written
+
+    return (
+        ops, max_depth,
+        join_count, scan_count, hash_count, sort_count, aggregate_count, parallel_count,
+        shared_hit, shared_read, shared_dirtied, temp_read, temp_written
+    )
+
+# =========================================================
+# Helper for Safe parameter substitution
+# =========================================================
+def substitute_params(sql_text, combo):
+
+    result = sql_text
+
+    for i, value in enumerate(combo):
+
+        param = f":p{i+1}"
+
+        # ---------------------------------------------
+        # strings / dates
+        # ---------------------------------------------
+
+        if isinstance(value, str):
+
+            replacement = "'" + value.replace("'", "''") + "'"
+
+        elif hasattr(value, "isoformat"):
+
+            replacement = "'" + value.isoformat() + "'"
+
+        # ---------------------------------------------
+        # numeric
+        # ---------------------------------------------
+
+        else:
+
+            replacement = str(value)
+
+        result = result.replace(param, replacement)
+
+    return result
+
+# =========================================================
+# Helper to Resolve unqualified column
+# =========================================================
+def resolve_column(
+    conn,
+    column_expr,
+    table_aliases
+):
+
+    # -----------------------------------------------------
+    # Qualified
+    # -----------------------------------------------------
+
+    if "." in column_expr:
+
+        alias, column = column_expr.split(".", 1)
+
+        if alias not in table_aliases:
+
+            raise RuntimeError(
+                f"Unknown alias: {alias}"
+            )
+
+        return (
+            table_aliases[alias],
+            column
+        )
+
+    # -----------------------------------------------------
+    # Unqualified
+    # -----------------------------------------------------
+
+    column = column_expr
+
+    cur = conn.cursor()
+
+    cur.execute("""
+        SELECT table_name
+        FROM information_schema.columns
+        WHERE column_name = %s
+    """, (column,))
+
+    matches = [
+        r[0]
+        for r in cur.fetchall()
+    ]
+
+    cur.close()
+
+    query_tables = set(
+        table_aliases.values()
+    )
+
+    matches = [
+        t for t in matches
+        if t in query_tables
+    ]
+
+    if len(matches) == 0:
+
+        raise RuntimeError(
+            f"Could not resolve column: {column}"
+        )
+
+    if len(matches) > 1:
+
+        raise RuntimeError(
+            f"Ambiguous column: {column}"
+        )
+
+    return matches[0], column
+    
+# =====================================================
+# Helper to find Methods using target selectivity space
+# =====================================================
+def method_uses_target_selectivities(method):
+
+    cfg=config_gt.METHOD_CONFIGS[
+        method
+    ]
+
+    sampler_name=cfg[
+        "sampler"
+    ].lower()
+
+    # any sampler based on percentile/selectivity
+    return (
+        "selectivity"
+        in sampler_name
+    )
+
+# =========================================================
+# Helper for axis selectivity (1 scan + BINARY SEARCH)
+# =========================================================
+def get_axis_selectivity(
+    conn,
+    table,
+    column,
+    value
+):
+
+    cache_key=(
+        table,
+        column
+    )
+
+    # Build cache once
+    if cache_key not in SELECTIVITY_CACHE:
+
+        tqdm.write(
+            f"Caching {table}.{column}"
+        )
+
+        # estimate row count
+        count_cur=conn.cursor()
+
+        count_cur.execute(
+            f"""
+            SELECT COUNT({column})
+            FROM {table}
+            """
+        )
+        total_rows=count_cur.fetchone()[0]
+
+        count_cur.close()
+
+        # stream sorted values
+        cur=conn.cursor(
+            name=f"cursor_{table}_{column}"
+        )
+        cur.itersize=100000
+
+        cur.execute(
+            f"""
+            SELECT {column}
+            FROM {table}
+            WHERE {column} IS NOT NULL
+            ORDER BY {column}
+            """
+        )
+
+        vals=[]
+
+        pbar=tqdm(
+            total=total_rows,
+            desc=(
+                f"Cache "
+                f"{table}.{column}"
+            ),
+            unit="row",
+            disable=LOGFILE_MODE,
+        )
+
+        while True:
+
+            batch=cur.fetchmany(
+                100000
+            )
+            if not batch:
+                break
+
+            vals.extend(
+                r[0]
+                for r in batch
+            )
+            pbar.update(
+                len(batch)
+            )
+        pbar.close()
+
+        cur.close()
+
+        SELECTIVITY_CACHE[
+            cache_key
+        ]=vals
+
+        tqdm.write(
+            f"Cached {len(vals):,} values"
+        )
+
+    vals=SELECTIVITY_CACHE[cache_key]
+    total=len(vals)
+    if total==0:
+        return np.nan
+
+    # Exact values : P(X<=value)
+    idx=bisect.bisect_right(
+        vals,
+        value
+    )
+    sel=idx/total
+
+    return sel
+
+# =========================================================
+# Multi Dimension Plan change detection (using plan_hash)
+# =========================================================
+def count_plan_changes_nd(plan_grid):
+    """
+    Count plan changes across all neighboring cells
+    in an N-dimensional parameter grid.
+    """
+
+    plan_grid = np.array(plan_grid, dtype=object)
+
+    total_changes = 0
+
+    for axis in range(plan_grid.ndim):
+
+        rolled = np.roll(plan_grid, shift=1, axis=axis)
+
+        slicer = [slice(None)] * plan_grid.ndim
+        slicer[axis] = slice(1, None)
+
+        current = plan_grid[tuple(slicer)]
+        previous = rolled[tuple(slicer)]
+
+        diff = current != previous
+
+        total_changes += int(np.sum(diff))
+
+    return total_changes
+
+# =========================================================
+# Per-axis Plan Change Mask
+# =========================================================
+
+def compute_axis_plan_changes(plan_grid):
+
+    masks = []
+
+    for axis in range(plan_grid.ndim):
+
+        mask = np.zeros(
+            plan_grid.shape,
+            dtype=bool
+        )
+
+        slicer_curr = [slice(None)] * plan_grid.ndim
+        slicer_prev = [slice(None)] * plan_grid.ndim
+
+        slicer_curr[axis] = slice(1, None)
+        slicer_prev[axis] = slice(0, -1)
+
+        curr = plan_grid[tuple(slicer_curr)]
+        prev = plan_grid[tuple(slicer_prev)]
+
+        diff = curr != prev
+
+        mask[tuple(slicer_curr)] = diff
+
+        masks.append(mask)
+
+    return masks
+
+# =========================================================
+# Adjacent ND Q-error Per Axis
+# =========================================================
+def compute_axis_qerrors(runtime_grid):
+
+    runtime_grid = np.array(runtime_grid)
+
+    qerr_maps = []
+
+    for axis in range(runtime_grid.ndim):
+
+        qmap = np.full(
+            runtime_grid.shape,
+            np.nan
+        )
+
+        slicer_curr = [slice(None)] * runtime_grid.ndim
+        slicer_prev = [slice(None)] * runtime_grid.ndim
+
+        slicer_curr[axis] = slice(1, None)
+        slicer_prev[axis] = slice(0, -1)
+
+        curr = runtime_grid[tuple(slicer_curr)]
+        prev = runtime_grid[tuple(slicer_prev)]
+
+        q = np.maximum(
+            curr / np.maximum(prev, 1e-9),
+            prev / np.maximum(curr, 1e-9)
+        )
+
+        qmap[tuple(slicer_curr)] = q
+
+        qerr_maps.append(qmap)
+
+    return qerr_maps
+
+
 # =========================================================
 # WHOLE SCRIPT TIMER
 # =========================================================
-
 whole_script_start_wall = datetime.now()
 whole_script_start_perf = time.time()
 
 
+# =========================================================
+# LOOP FOR EACH METHOD START HERE !!
+# =========================================================
 for CURRENT_METHOD in METHODS_TO_RUN:
-    CURRENT_METHOD=CURRENT_METHOD
 
     print()
     print("="*70)
     print(f"RUNNING METHOD: "f"{CURRENT_METHOD}")    
     print("="*70)
 
-    # temporarily switch active method
-    # config_gt.SAMPLING_METHOD=CURRENT_METHOD
+    # =======================================================================================
+    # CAPTURE EXECUTION START TIME
+    script_start_wall = datetime.now()
+    script_start_perf = time.time()
 
-    DEFAULT_RESOLUTION,\
-    PARAM_RESOLUTIONS=(
-        config_gt.get_resolution_map(CURRENT_METHOD)
-    )
-    PARAM_RESOLUTIONS={
-        k:(v if v is not None else DEFAULT_RESOLUTION)
-        for k,v in PARAM_RESOLUTIONS.items()
-    }
+    print("\n=================================================")
+    print("SCRIPT START")
+    print("=================================================")
+    print(f"Start Time : {script_start_wall.strftime('%Y-%m-%d %H:%M:%S')}")
+    print("=================================================\n")
+    # =======================================================================================
 
-    RES_STR="x".join(
-        str(PARAM_RESOLUTIONS[p])
-        for p in sorted(PARAM_RESOLUTIONS)
-    )
 
-    print(f"Sampler: {CURRENT_METHOD} (default resolution={DEFAULT_RESOLUTION})")
-
-    sampler=import_module(
-
-        "samplers."
-        +
-        config_gt.SAMPLER_FILES[
-            CURRENT_METHOD
-        ]
-    )
-
-    config_gt.set_method_paths(CURRENT_METHOD,RES_STR)
-    config_gt.ensure_paths()
-
+    # =========================================================
+    # STABILITY CONFIGURATIONS
+    # =========================================================
     conn = get_conn(config_gt.DATABASE_NAME)
 
-    # FOR STABILITY
     setup_cur = conn.cursor()
     setup_cur.execute("SET jit = off;")
     setup_cur.execute(f"SET max_parallel_workers_per_gather = {config_gt.QUERY_WORKERS};")
@@ -526,35 +1080,78 @@ for CURRENT_METHOD in METHODS_TO_RUN:
     setup_cur.execute("SET work_mem = '256MB';")
     setup_cur.close()
 
+
+    # Switch Active method (config_gt.SAMPLING_METHOD=CURRENT_METHOD)
+    DEFAULT_RESOLUTION,\
+    PARAM_RESOLUTIONS=(
+        config_gt.get_resolution_map(CURRENT_METHOD)
+    )
+    print(f"Sampler: {CURRENT_METHOD} (default resolution={DEFAULT_RESOLUTION})")
+
+    sampler=import_module(
+        "samplers."
+        +
+        config_gt.SAMPLER_FILES[
+            CURRENT_METHOD
+        ]
+    )
+
     # =========================================================
-    # Create output directories
+    # Load SQL query and parse with sqlparse
     # =========================================================
+    with open(config_gt.QUERY_SQL_PATH, "r") as f:
+        sql_text = f.read()
+
+    # =========================================================
+    # Robust AST SQL parsing
+    # =========================================================
+    parser = TPCHQueryParser()
+    parsed = parser.parse(sql_text)
+    print("\nParsed query successfully")
+
+    # =========================================================
+    # Table aliases
+    # =========================================================
+    table_aliases = parsed["aliases"]
+
+    # =========================================================
+    # Parameter extraction and robust filename setup
+    # =========================================================
+    param_columns = [
+        p.replace(":", "")
+        for p in parsed["parameters"]
+    ]
+
+    param_columns = sorted(
+        param_columns,
+        key=lambda x: int(x[1:])
+    )
+
+    RES_STR = config_gt.get_resolution_string(
+        CURRENT_METHOD,
+        len(param_columns)
+    )
+
+    config_gt.set_main_dir(RES_STR)
+    config_gt.set_method_paths(CURRENT_METHOD)
+
     config_gt.ensure_paths()
 
 
     # =====================================================
     # Resume state
     # =====================================================
-
     resume_state=load_resume_state()
 
-    if resume_state.get(
-        "finished",
-        False
-    ):
+    if resume_state.get("finished",False):
 
         print()
         print("="*70)
-        print(
-            f"{CURRENT_METHOD} GT already completed."
-        )
-        print(
-            "Checking processors..."
-        )
+        print(f"{CURRENT_METHOD} GT already completed.")
+        print("Checking processors...")
         print("="*70)
 
         run_missing_processors()
-
         continue
 
 
@@ -581,186 +1178,9 @@ for CURRENT_METHOD in METHODS_TO_RUN:
     print(f"Output directories ready:\n  {config_gt.PLANS_DIR}\n  {config_gt.PLAN_TREES_DIR}\n  {config_gt.TRACES_DIR}")
 
 
-    # =======================================================================================
-    # CAPTURE EXECUTION START TIME
-    script_start_wall = datetime.now()
-    script_start_perf = time.time()
-
-    print("\n=================================================")
-    print("SCRIPT START")
-    print("=================================================")
-    print(f"Start Time : {script_start_wall.strftime('%Y-%m-%d %H:%M:%S')}")
-    print("=================================================\n")
-    # =======================================================================================
-
-
-    # =========================================================
-    # Helper functions for file storage
-    # =========================================================
-    def sanitize(v):
-        s = str(v)
-        s = s.replace("/", "_")
-        s = s.replace(":", "_")
-        s = s.replace(" ", "_")
-        s = s.replace(".", "p")
-        return s[:50]
-
-    def make_combo_filename(combo):
-        """Convert combo tuple to filename string."""
-        return "_".join([
-            f"x{i+1}_{sanitize(v)}"
-            for i, v in enumerate(combo)
-        ])
-
-
-    # =========================================================
-    # Helper to Rows surviving predicate
-    # =========================================================
-    def get_filtered_rows(node):
-
-        node_type=node.get(
-            "Node Type",""
-        )
-
-        if (
-            "Scan" in node_type
-            and (
-                "Filter" in node
-                or
-                "Index Cond" in node
-            )
-        ):
-            return node.get(
-                "Actual Rows",
-                0
-            )
-
-        for child in node.get(
-            "Plans",
-            []
-        ):
-
-            rows=get_filtered_rows(
-                child
-            )
-
-            if rows>0:
-                return rows
-
-        return 0
-
-    # =========================================================
-    # Plan traversal
-    # =========================================================
-
-
-    def traverse_plan(node, depth=0):
-        ops = []
-        node_type = node.get("Node Type", "UNKNOWN")
-        ops.append(node_type)
-        max_depth = depth
-
-        join_count = 0
-        scan_count = 0
-        hash_count = 0
-        sort_count = 0
-        aggregate_count = 0
-        parallel_count = 0
-
-        if "Join" in node_type or node_type == "Nested Loop":
-            join_count += 1
-        if "Scan" in node_type:
-            scan_count += 1
-        if "Hash" in node_type:
-            hash_count += 1
-        if "Sort" in node_type:
-            sort_count += 1
-        if "Aggregate" in node_type:
-            aggregate_count += 1
-        if "Parallel" in node_type:
-            parallel_count += 1
-
-        shared_hit = node.get("Shared Hit Blocks", 0)
-        shared_read = node.get("Shared Read Blocks", 0)
-        shared_dirtied = node.get("Shared Dirtied Blocks", 0)
-        temp_read = node.get("Temp Read Blocks", 0)
-        temp_written = node.get("Temp Written Blocks", 0)
-
-        for child in node.get("Plans", []):
-            (
-                child_ops,
-                child_depth,
-                child_join,
-                child_scan,
-                child_hash,
-                child_sort,
-                child_agg,
-                child_parallel,
-                child_hit,
-                child_read,
-                child_dirtied,
-                child_temp_read,
-                child_temp_written
-            ) = traverse_plan(child, depth + 1)
-
-            ops.extend(child_ops)
-            max_depth = max(max_depth, child_depth)
-            join_count += child_join
-            scan_count += child_scan
-            hash_count += child_hash
-            sort_count += child_sort
-            aggregate_count += child_agg
-            parallel_count += child_parallel
-            shared_hit += child_hit
-            shared_read += child_read
-            shared_dirtied += child_dirtied
-            temp_read += child_temp_read
-            temp_written += child_temp_written
-
-        return (
-            ops, max_depth,
-            join_count, scan_count, hash_count, sort_count, aggregate_count, parallel_count,
-            shared_hit, shared_read, shared_dirtied, temp_read, temp_written
-        )
-
-    # =========================================================
-    # Load SQL query and parse with sqlparse
-    # =========================================================
-    with open(config_gt.QUERY_SQL_PATH, "r") as f:
-        sql_text = f.read()
-
-    # =========================================================
-    # Robust AST SQL parsing
-    # =========================================================
-
-    parser = TPCHQueryParser()
-    parsed = parser.parse(sql_text)
-    print("\nParsed query successfully")
-
-    # =========================================================
-    # Table aliases
-    # =========================================================
-
-    table_aliases = parsed["aliases"]
-
-    # =========================================================
-    # Parameter extraction
-    # =========================================================
-
-    param_columns = [
-        p.replace(":", "")
-        for p in parsed["parameters"]
-    ]
-
-    param_columns = sorted(
-        param_columns,
-        key=lambda x: int(x[1:])
-    )
-
     # =========================================================
     # Parameter → column mapping
     # =========================================================
-
     param_to_column = {}
 
     for pred in parsed["predicates"]:
@@ -785,16 +1205,13 @@ for CURRENT_METHOD in METHODS_TO_RUN:
                 param_to_column[p_clean] = col
 
     print("Detected parameters:", param_columns)
-
     print("Parameter mapping:", param_to_column)
-
     print("Table aliases:", table_aliases)
 
 
     # =========================================================
     # Compute total base relation size for selectivity
     # =========================================================
-
     query_tables = sorted(
         list(
             set(
@@ -821,324 +1238,17 @@ for CURRENT_METHOD in METHODS_TO_RUN:
 
     print()
     print("=================================================")
-    print("SELECTIVITY INFO")
+    print("TABLES INFO")
     print("=================================================")
-
-    print(
-        f"Query tables: {query_tables}"
-    )
-
-    print(
-        f"Total rows across tables: "
-        f"{total_relation_rows:,}"
-    )
-
+    print(f"Query tables: {query_tables}")
+    print(f"Total rows across tables: "f"{total_relation_rows:,}")
     print("=================================================\n")
 
 
-    # =========================================================
-    # Safe parameter substitution
-    # =========================================================
 
-    def substitute_params(sql_text, combo):
-
-        result = sql_text
-
-        for i, value in enumerate(combo):
-
-            param = f":p{i+1}"
-
-            # ---------------------------------------------
-            # strings / dates
-            # ---------------------------------------------
-
-            if isinstance(value, str):
-
-                replacement = "'" + value.replace("'", "''") + "'"
-
-            elif hasattr(value, "isoformat"):
-
-                replacement = "'" + value.isoformat() + "'"
-
-            # ---------------------------------------------
-            # numeric
-            # ---------------------------------------------
-
-            else:
-
-                replacement = str(value)
-
-            result = result.replace(param, replacement)
-
-        return result
-
-    # =========================================================
-    # Resolve unqualified column
-    # =========================================================
-
-    def resolve_column(
-        conn,
-        column_expr,
-        table_aliases
-    ):
-
-        # -----------------------------------------------------
-        # Qualified
-        # -----------------------------------------------------
-
-        if "." in column_expr:
-
-            alias, column = column_expr.split(".", 1)
-
-            if alias not in table_aliases:
-
-                raise RuntimeError(
-                    f"Unknown alias: {alias}"
-                )
-
-            return (
-                table_aliases[alias],
-                column
-            )
-
-        # -----------------------------------------------------
-        # Unqualified
-        # -----------------------------------------------------
-
-        column = column_expr
-
-        cur = conn.cursor()
-
-        cur.execute("""
-            SELECT table_name
-            FROM information_schema.columns
-            WHERE column_name = %s
-        """, (column,))
-
-        matches = [
-            r[0]
-            for r in cur.fetchall()
-        ]
-
-        cur.close()
-
-        query_tables = set(
-            table_aliases.values()
-        )
-
-        matches = [
-            t for t in matches
-            if t in query_tables
-        ]
-
-        if len(matches) == 0:
-
-            raise RuntimeError(
-                f"Could not resolve column: {column}"
-            )
-
-        if len(matches) > 1:
-
-            raise RuntimeError(
-                f"Ambiguous column: {column}"
-            )
-
-        return matches[0], column
-    
-    # =====================================================
-    # Helper to find Methods using target selectivity space
-    # =====================================================
-
-    def method_uses_target_selectivities(method):
-
-        cfg=config_gt.METHOD_CONFIGS[
-            method
-        ]
-
-        sampler_name=cfg[
-            "sampler"
-        ].lower()
-
-        # any sampler based on percentile/selectivity
-        return (
-            "selectivity"
-            in sampler_name
-        )
-
-    # # =========================================================
-    # # Helper for axis selectivity (LINEAR SEARCH)
-    # # =========================================================
-
-    # def get_axis_selectivity(
-    #     conn,
-    #     table,
-    #     column,
-    #     value
-    # ):
-
-    #     cur=conn.cursor()
-
-    #     cur.execute(
-    #         sql.SQL("""
-    #         SELECT
-    #             COUNT(*) FILTER(
-    #                 WHERE {col}<=%s
-    #             ),
-    #             COUNT(*)
-    #         FROM {tbl}
-    #         """).format(
-    #             col=sql.Identifier(column),
-    #             tbl=sql.Identifier(table)
-    #         ),
-    #         (value,)
-    #     )
-
-    #     matched,total=cur.fetchone()
-
-    #     cur.close()
-
-    #     return matched/max(total,1)
-
-
-    # =========================================================
-    # Helper for axis selectivity (one scan+BINARY SEARCH)
-    # =========================================================
-
-    def get_axis_selectivity(
-        conn,
-        table,
-        column,
-        value
-    ):
-
-        cache_key=(
-            table,
-            column
-        )
-
-        # ======================================
-        # Build cache once
-        # ======================================
-
-        if cache_key not in SELECTIVITY_CACHE:
-
-            tqdm.write(
-                f"Caching {table}.{column}"
-            )
-
-            # ======================================
-            # estimate row count
-            # ======================================
-
-            count_cur=conn.cursor()
-
-            count_cur.execute(
-                f"""
-                SELECT COUNT({column})
-                FROM {table}
-                """
-            )
-
-            total_rows=count_cur.fetchone()[0]
-
-            count_cur.close()
-
-            # ======================================
-            # stream sorted values
-            # ======================================
-
-            cur=conn.cursor(
-                name=f"cursor_{table}_{column}"
-            )
-
-            cur.itersize=100000
-
-            cur.execute(
-                f"""
-                SELECT {column}
-                FROM {table}
-                WHERE {column} IS NOT NULL
-                ORDER BY {column}
-                """
-            )
-
-            vals=[]
-
-            pbar=tqdm(
-                total=total_rows,
-                desc=(
-                    f"Cache "
-                    f"{table}.{column}"
-                ),
-                unit="row",
-                disable=LOGFILE_MODE,
-            )
-
-            while True:
-
-                batch=cur.fetchmany(
-                    100000
-                )
-
-                if not batch:
-                    break
-
-                vals.extend(
-                    r[0]
-                    for r in batch
-                )
-
-                pbar.update(
-                    len(batch)
-                )
-
-            pbar.close()
-
-            cur.close()
-
-            SELECTIVITY_CACHE[
-                cache_key
-            ]=vals
-
-            tqdm.write(
-                f"Cached {len(vals):,} values"
-            )
-
-        
-
-        vals=SELECTIVITY_CACHE[
-            cache_key
-        ]
-
-        total=len(vals)
-
-        if total==0:
-            return np.nan
-
-
-        # ======================================
-        # Exact values : P(X<=value)
-        # ======================================
-
-        idx=bisect.bisect_right(
-            vals,
-            value
-        )
-
-        sel=idx/total
-
-        return sel
-
-
-    # =========================================================
-    # Cache DISTINCT column values
-    # =========================================================
-    distinct_cache = {}
-
-    # =========================================================
-    # Collect all values for each parameter
-    # =========================================================
-
+    # ==================================================================
+    # Collect all values for each predicate
+    # ==================================================================
     param_values_dict={}
     actual_axis_selectivities={}
 
@@ -1146,7 +1256,67 @@ for CURRENT_METHOD in METHODS_TO_RUN:
         CURRENT_METHOD
     )
 
+    # build the COUNT(*) version once
+    count_query_template = make_count_query(sql_text)
+
+    # cache sorted values for each parameter column
+    sorted_column_values = {}
+
+    for param in param_columns:
+        column_expr = param_to_column[param]
+        real_table, column = resolve_column(conn, column_expr, table_aliases)
+
+        cur = conn.cursor()
+        cur.execute(
+            f"""
+            SELECT {column}
+            FROM {real_table}
+            WHERE {column} IS NOT NULL
+            ORDER BY {column}
+            """
+        )
+        sorted_column_values[param] = [r[0] for r in cur.fetchall()]
+        cur.close()
+    # ==================================================================
+
+    count_cur = conn.cursor()
+
+    def card_fn(selectivities):
+        values = []
+        for d, param in enumerate(param_columns):
+            vals = sorted_column_values[param]
+            idx = int(selectivities[d] * (len(vals) - 1))
+            idx = max(0, min(idx, len(vals) - 1))
+            values.append(vals[idx])
+
+        query = substitute_params(count_query_template, values)
+        count_cur.execute(query)
+        return count_cur.fetchone()[0]
+
+    boundary_sels, boundary_count = find_min_positive_point_nd(
+        card_fn,
+        ndim=len(param_columns)
+    )
+
+    axis_lower_bounds = {}
+    for d, param in enumerate(param_columns):
+        vals = sorted_column_values[param]
+        idx = int(boundary_sels[d] * (len(vals) - 1))
+        idx = max(0, min(idx, len(vals) - 1))
+        axis_lower_bounds[param] = vals[idx]
+
+    count_cur.close()
+
+    print("="*70)
+    print("ADJUSTMENT TO ENSURE NON-ZERO JOINT CARDINALITY AT INITIAL BOUNDARY POINTS")
+    print("="*70)
+    print("initial_axes_sels:", boundary_sels)
+    print("initial_point_count_rows:", boundary_count)
+    print("initial_axis_lower_bounds:", axis_lower_bounds)
+    print("="*70)
+
     print()
+
     print("="*50)
     print("PARAMETER PREPARATION")
     print("="*50)
@@ -1176,7 +1346,8 @@ for CURRENT_METHOD in METHODS_TO_RUN:
             conn,
             real_table,
             column,
-            resolution
+            resolution,
+            lower_bound=axis_lower_bounds[param]
         )
 
         param_values_dict[param]=values
@@ -1218,7 +1389,6 @@ for CURRENT_METHOD in METHODS_TO_RUN:
         else:
 
             actual_sels=[]
-            n=len(values)
 
             print(
                 f"[{param}] "
@@ -1244,14 +1414,10 @@ for CURRENT_METHOD in METHODS_TO_RUN:
 
             actual_axis_selectivities[param]=actual_sels
 
-
     print()
     print("="*50)
-    print(
-        "Parameter preparation complete"
-    )
+    print("Parameter preparation complete")
     print("="*50)
-        
 
     for i, col in enumerate(param_columns):
         print(f"Parameter [{col}] has {len(param_values_dict[col])} distinct values")
@@ -1281,7 +1447,6 @@ for CURRENT_METHOD in METHODS_TO_RUN:
     # =========================================
     # Rebuild temp runs from trace files
     # =========================================
-
     for combo in all_combinations:
 
         combo_filename=make_combo_filename(combo)
@@ -1336,7 +1501,6 @@ for CURRENT_METHOD in METHODS_TO_RUN:
     # =========================================
     # Validate rebuilt runs
     # =========================================
-
     valid_completed_runs=set()
 
     for combo in all_combinations:
@@ -1353,7 +1517,9 @@ for CURRENT_METHOD in METHODS_TO_RUN:
             valid_completed_runs.add(key)
 
 
+    # ==========================================================================
     # Merge trace recovery with resume file as resume_state is source of truth
+    # ==========================================================================
     completed_runs |= valid_completed_runs
 
     resume_state["completed"]=list(
@@ -1376,115 +1542,10 @@ for CURRENT_METHOD in METHODS_TO_RUN:
     method_start=time.time()
     recent_times=deque(maxlen=200)
 
-    # =========================================================
-    # Run all queries config_gt.TOTAL_ROUNDS times (discard warmup)
-    # =========================================================
-    def strip_order_by(sql_query):
-
-        parsed = sqlparse.parse(sql_query)[0]
-
-        output = []
-
-        depth = 0
-
-        tokens = list(parsed.flatten())
-
-        i = 0
-
-        while i < len(tokens):
-
-            token = tokens[i]
-
-            value = token.value
-            upper = value.upper()
-
-            depth += value.count("(")
-            depth -= value.count(")")
-
-            if depth == 0:
-
-                if upper == "ORDER":
-
-                    j = i + 1
-
-                    while j < len(tokens) and tokens[j].is_whitespace:
-                        j += 1
-
-                    if j < len(tokens):
-
-                        if tokens[j].value.upper() == "BY":
-                            break
-
-            output.append(value)
-
-            i += 1
-
-        return "".join(output).strip()
-
-    def get_filtered_cardinality(plan):
-
-        total = 0
-        stack = [plan]
-
-        while stack:
-
-            node = stack.pop()
-
-            node_type = node.get(
-                "Node Type",
-                ""
-            )
-
-            if (
-                "Scan" in node_type
-                and (
-                    "Filter" in node
-                    or
-                    "Index Cond" in node
-                    or
-                    "Recheck Cond" in node
-                )
-            ):
-
-                actual_rows = float(
-                    node.get(
-                        "Actual Rows",
-                        0
-                    )
-                )
-
-                loops = float(
-                    node.get(
-                        "Actual Loops",
-                        1
-                    )
-                )
-
-                surviving = (
-                    actual_rows * loops
-                )
-
-                total = max(
-                    total,
-                    surviving
-                )
-
-            stack.extend(
-                node.get(
-                    "Plans",
-                    []
-                )
-            )
-
-        return int(total)
-    
-
-    # =========================================================
-    # Prepare query cache only
-    # =========================================================
-
+    # ====================================================================================
+    # Prepare cache for all query combinations with sampled predicate values
     print()
-    print("Preparing query cache...")
+    print("Preparing cache for all query combinations with sampled predicate values...")
 
     combo_queries={}
 
@@ -1494,7 +1555,6 @@ for CURRENT_METHOD in METHODS_TO_RUN:
         unit="query",
         disable=LOGFILE_MODE,
     ):
-
         combo_queries[combo]=(
 
             substitute_params(
@@ -1502,10 +1562,58 @@ for CURRENT_METHOD in METHODS_TO_RUN:
                 combo
             )
         )
+    print("Caching sampled queries complete")
+    # ====================================================================================
 
-    print(
-        "Query cache complete"
+
+    # ====================================================================================
+    # Compute predicate surviving cardinality for each sampled query
+    print()
+    print("Preparing cache for predicate surviving cardinality for each sampled query...")
+
+    combo_row_counts = {}
+
+    count_cur = conn.cursor()
+
+    for combo in tqdm(
+        all_combinations,
+        desc="Computing cardinalities",
+        unit="combo",
+        disable=LOGFILE_MODE,
+    ):
+
+        try:
+
+            count_cur.execute(
+                make_count_query(
+                    combo_queries[combo]
+                )
+            )
+
+            combo_row_counts[combo] = (
+                count_cur.fetchone()[0]
+            )
+
+        except Exception as e:
+
+            print(f"COUNT query failed for {combo}")
+            print(e)
+
+            conn.rollback()
+            combo_row_counts[combo] = 0
+
+    count_cur.close()
+
+    max_filtered_cardinality = max(
+        combo_row_counts.values(),
+        default=1
     )
+
+    print(f"Max output cardinality: {max_filtered_cardinality:,}")
+    print()
+    # ====================================================================================
+
+   
     # =========================================================
     # LOGS
     global_start = time.time()
@@ -1513,6 +1621,11 @@ for CURRENT_METHOD in METHODS_TO_RUN:
     completed_queries = len(completed_runs)
     # =========================================================
 
+
+    # ==============================================================
+    # LOOP FOR EACH ROUND START HERE !!
+    # Run all queries config_gt.TOTAL_ROUNDS times (discard warmup)
+    # ==============================================================
     for round_id in range(config_gt.TOTAL_ROUNDS):
         # FOR STABILITY
         round_setup = conn.cursor()
@@ -1655,8 +1768,6 @@ for CURRENT_METHOD in METHODS_TO_RUN:
                         # "all:"
                         # f"{format_duration(all_queries_eta_sec)} "
                     )
-
-
             # ======================================================
 
             if round_id >= config_gt.WARMUP_ROUND:
@@ -1690,52 +1801,8 @@ for CURRENT_METHOD in METHODS_TO_RUN:
 
 
     # =========================================================
-    # Compute global max output cardinality
-    # (used for data-space-sampler selectivity normalisation)
-    # =========================================================
-
-    combo_row_counts = {}
-
-    for combo in all_combinations:
-
-        temp_runs = all_temp_runs[combo]
-
-        if len(temp_runs)==0:
-            continue
-
-        explain = temp_runs[0]["explain"]
-
-        plan = explain["Plan"]
-
-        combo_row_counts[combo] = (
-            get_filtered_cardinality(
-                plan
-            )
-        )
-
-    max_filtered_cardinality = max(
-        combo_row_counts.values(),
-        default=1
-    )
-
-    print()
-    print("=================================================")
-    print("SELECTIVITY NORMALIZATION")
-    print("=================================================")
-
-    print(
-        f"Max output cardinality: "
-        f"{max_filtered_cardinality:,}"
-    )
-
-    print("=================================================")
-    print()
-
-
-    # =========================================================
     # Build rows for DataFrame
     # =========================================================
-
     value_to_idx={}
 
     for p in param_columns:
@@ -1790,7 +1857,7 @@ for CURRENT_METHOD in METHODS_TO_RUN:
             idx=value_to_idx[param][v]
             selectivity_axes.append(actual_axis_selectivities[param][idx])
 
-        # observed joint selectivity
+        # observed joint selectivity (proxy)
         joint_sel = (count_rows /max(max_filtered_cardinality,1))
         joint_sel = min(max(joint_sel,0.0),1.0)
 
@@ -2015,102 +2082,6 @@ for CURRENT_METHOD in METHODS_TO_RUN:
 
     df = pd.DataFrame(rows, columns=columns)
 
-    # =========================================================
-    # Multi Dimension Plan change detection (using plan_hash)
-    # =========================================================
-    def count_plan_changes_nd(plan_grid):
-        """
-        Count plan changes across all neighboring cells
-        in an N-dimensional parameter grid.
-        """
-
-        plan_grid = np.array(plan_grid, dtype=object)
-
-        total_changes = 0
-
-        for axis in range(plan_grid.ndim):
-
-            rolled = np.roll(plan_grid, shift=1, axis=axis)
-
-            slicer = [slice(None)] * plan_grid.ndim
-            slicer[axis] = slice(1, None)
-
-            current = plan_grid[tuple(slicer)]
-            previous = rolled[tuple(slicer)]
-
-            diff = current != previous
-
-            total_changes += int(np.sum(diff))
-
-        return total_changes
-
-    # =========================================================
-    # Per-axis Plan Change Mask
-    # =========================================================
-
-    def compute_axis_plan_changes(plan_grid):
-
-        masks = []
-
-        for axis in range(plan_grid.ndim):
-
-            mask = np.zeros(
-                plan_grid.shape,
-                dtype=bool
-            )
-
-            slicer_curr = [slice(None)] * plan_grid.ndim
-            slicer_prev = [slice(None)] * plan_grid.ndim
-
-            slicer_curr[axis] = slice(1, None)
-            slicer_prev[axis] = slice(0, -1)
-
-            curr = plan_grid[tuple(slicer_curr)]
-            prev = plan_grid[tuple(slicer_prev)]
-
-            diff = curr != prev
-
-            mask[tuple(slicer_curr)] = diff
-
-            masks.append(mask)
-
-        return masks
-
-    # =========================================================
-    # Adjacent ND Q-error Per Axis
-    # =========================================================
-    def compute_axis_qerrors(runtime_grid):
-
-        runtime_grid = np.array(runtime_grid)
-
-        qerr_maps = []
-
-        for axis in range(runtime_grid.ndim):
-
-            qmap = np.full(
-                runtime_grid.shape,
-                np.nan
-            )
-
-            slicer_curr = [slice(None)] * runtime_grid.ndim
-            slicer_prev = [slice(None)] * runtime_grid.ndim
-
-            slicer_curr[axis] = slice(1, None)
-            slicer_prev[axis] = slice(0, -1)
-
-            curr = runtime_grid[tuple(slicer_curr)]
-            prev = runtime_grid[tuple(slicer_prev)]
-
-            q = np.maximum(
-                curr / np.maximum(prev, 1e-9),
-                prev / np.maximum(curr, 1e-9)
-            )
-
-            qmap[tuple(slicer_curr)] = q
-
-            qerr_maps.append(qmap)
-
-        return qerr_maps
 
     # =========================================================
     # N-dimensional plan change analysis
@@ -2360,7 +2331,7 @@ for CURRENT_METHOD in METHODS_TO_RUN:
 
 
             # --------------------------------
-            # observed joint selectivity
+            # observed joint selectivity (proxy)
             # --------------------------------
 
             curr_joint=row[
@@ -2418,9 +2389,9 @@ for CURRENT_METHOD in METHODS_TO_RUN:
         "MEASURED_ROUNDS": config_gt.MEASURED_ROUNDS,
         "collection_date": datetime.now().isoformat(),
         "database": db_meta.get("database"),
-        "HOST": db_meta.get("config_gt.HOST"),
+        "HOST": db_meta.get(f"{config_gt.HOST}"),
         "port": db_meta.get("port"),
-        "USER": db_meta.get("config_gt.USER"),
+        "USER": db_meta.get(f"{config_gt.USER}"),
         "server_version": db_meta.get("server_version"),
         "COMPARATOR_MODULE": config_gt.COMPARATOR_MODULE,
         "PLAN_HASH_METHOD": config_gt.PLAN_HASH_METHOD,
@@ -2520,21 +2491,6 @@ for CURRENT_METHOD in METHODS_TO_RUN:
             resume_state
         )
 
-        # --------------------------------
-        # future dispatch
-        # --------------------------------
-
-        # if processor=="neighbor_analysis":
-        #
-        #     neighbor_analysis(
-        #         config_gt.RESULTS_DIR
-        #     )
-        #
-        # elif processor=="qerr_stats":
-        #
-        #     qerr_stats(
-        #         config_gt.RESULTS_DIR
-        #     )
 
     print()
     print(
@@ -2582,22 +2538,6 @@ for processor in config_gt.GLOBAL_PROCESSORS:
         processor, "global_processors",
         config_gt.MAIN_DIR / config_gt.QUERY_DIR,
     )
-
-    # --------------------------------
-    # future dispatch
-    # --------------------------------
-
-    # if processor=="compare_methods":
-    #
-    #     compare_methods(
-    #         config_gt.QUERY_DIR
-    #     )
-    #
-    # elif processor=="merge_all":
-    #
-    #     merge_all(
-    #         config_gt.QUERY_DIR
-    #     )
     
 
 # =========================================================

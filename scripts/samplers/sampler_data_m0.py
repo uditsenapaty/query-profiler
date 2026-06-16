@@ -158,7 +158,8 @@ def sample(
     conn,
     table,
     column,
-    resolution
+    resolution,
+    lower_bound=None
 ):
 
     lo,hi,_=get_param_range(
@@ -166,6 +167,9 @@ def sample(
         table,
         column
     )
+
+    if lower_bound is not None:
+        lo = lower_bound
 
     return _linspace(
         lo,

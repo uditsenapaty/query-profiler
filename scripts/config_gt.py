@@ -23,15 +23,15 @@ COMPARATOR_MODULE = "./tpch/utils/comparator.py"
 PLAN_HASH_METHOD = "structural_hash_sha256"
 
 # Parallellism Support for Query runs
-SYSTEM_WORKERS = 5 # MIN 1 
-QUERY_WORKERS = 2 # MIN 0 / DEFAULT 2
+SYSTEM_WORKERS = 1 # MIN 1 
+QUERY_WORKERS = 0 # MIN 0 / DEFAULT 2
 
 # =========================================================
 # 2. SQL source 
 # =========================================================
 
 # Input if run for 1 QUERY ONLY using "build_gt.py"!!
-QUERY="qt8"
+QUERY="mqt8"
 # OPTIONAL : For MULTIPLE QUERY runs together use : "run_multi_gt.py"!!
 QUERIES=[
     "qt5",
@@ -107,22 +107,23 @@ METHOD_CONFIGS = {
 
 }
 
-# SET GLOBAL_PROCESSOR RES HELPER
+# ================================================
+# Helper for resolution string
+# ================================================
+def get_resolution_string(method, n_dims):
 
-res_cfg = METHOD_CONFIGS["m0"]["resolution"]
-default_res = res_cfg["default"]
+    res_cfg = METHOD_CONFIGS[method]["resolution"]
+    default_res = res_cfg["default"]
+    vals = []
 
-GLOBAL_PROCESSOR_RES = "x".join(
+    for i in range(1, n_dims + 1):
+        key = f"p{i}"
+        val = res_cfg.get(key)
+        if val is None:
+            val = default_res
+        vals.append(str(val))
 
-    str(
-        res_cfg[k]
-        if res_cfg[k] is not None
-        else default_res
-    )
-
-    for k in sorted(res_cfg)
-    if k.startswith("p")
-)
+    return "x".join(vals)
 
 
 # =========================================================
@@ -152,7 +153,6 @@ SAMPLER_FILES={
 # =========================================================
 # 5. Method → sampler file mapping
 # =========================================================
-
 def get_active_methods():
 
     if SAMPLING_METHOD=="all":
@@ -185,8 +185,8 @@ RUN_SUFFIX = (
 
 # Query result directory
 QUERY_DIR=Path(f"{QUERY}")
-MAIN_DIR=Path(f"gt_results_sf{SF}_{GLOBAL_PROCESSOR_RES}{RUN_SUFFIX}")
 
+MAIN_DIR=None
 RESULTS_DIR=None
 PLANS_DIR=None
 PLAN_TREES_DIR=None
@@ -194,7 +194,19 @@ TRACES_DIR=None
 RESULTS_FILENAME = "ground_truth.csv"
 METADATA_FILENAME = "gt_metadata.json"
 
-def get_method_dir(method, resolution):
+def set_main_dir(resolution):
+    global MAIN_DIR
+
+    MAIN_DIR = Path(
+        f"gt_results_sf{SF}_{resolution}{RUN_SUFFIX}"
+    )
+
+def get_method_dir(method):
+    if MAIN_DIR is None:
+        raise RuntimeError(
+            "MAIN_DIR not initialized. "
+            "Call set_main_dir() first."
+        )
 
     return (
         MAIN_DIR
@@ -202,13 +214,13 @@ def get_method_dir(method, resolution):
         / method
     )
 
-def set_method_paths(method, resolution):
+def set_method_paths(method):
     global RESULTS_DIR
     global PLANS_DIR
     global PLAN_TREES_DIR
     global TRACES_DIR
 
-    RESULTS_DIR=get_method_dir(method, resolution)
+    RESULTS_DIR=get_method_dir(method)
     PLANS_DIR=RESULTS_DIR/"plans"
     PLAN_TREES_DIR=(RESULTS_DIR/"plan_trees")
     TRACES_DIR=(RESULTS_DIR/"traces")
@@ -258,36 +270,24 @@ GLOBAL_PROCESSORS=[
 
 def get_resolution_map(method=None):
 
-    method=(
+    method = (
         method
-        or
-        CURRENT_METHOD
-        or
-        SAMPLING_METHOD
+        or CURRENT_METHOD
+        or SAMPLING_METHOD
     )
 
-    cfg=METHOD_CONFIGS[method]
-    src=cfg.get(
-        "resolution",
-        {
-            "default":10
-        }
-    )
-    default=src.get(
-        "default",
-        10
-    )
+    src = METHOD_CONFIGS[method]["resolution"]
+    default = src.get("default", 10)
+    overrides = {}
 
-    overrides={
-        k:v
-        for k,v in src.items()
-        if k!="default"
-    }
+    for k, v in src.items():
+        if k == "default":
+            continue
 
-    return (
-        default,
-        overrides
-    )
+        if v is not None:
+            overrides[k] = v
+
+    return default, overrides
 
 
 def query_name_from_path(path: Path) -> str:

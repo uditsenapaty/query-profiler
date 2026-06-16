@@ -306,18 +306,35 @@ def run(results_dir):
 
     results_dir = Path(results_dir)
 
-    gt_csv_path = results_dir / "qerr_sorted" / "qerr_desc.csv"
+    edge_csv_path = (
+        results_dir
+        / "qerr_sorted"
+        / "qerr_desc.csv"
+    )
+
+    point_csv_path = (
+        results_dir
+        / config_gt.RESULTS_FILENAME
+    )
+
+    if not edge_csv_path.exists():
+        print(f"Missing:\n{edge_csv_path}")
+        return
+
+    if not point_csv_path.exists():
+        print(f"Missing:\n{point_csv_path}")
+        return
+
+    # edge table
+    df = pd.read_csv(edge_csv_path)
+
+    # point table
+    points_df = pd.read_csv(point_csv_path)
 
     print()
     print("=" * 60)
     print("QUERY GROUND TRUTH SUMMARY")
     print("=" * 60)
-
-    if not gt_csv_path.exists():
-        print(f"Missing:\n{gt_csv_path}")
-        return
-
-    df = pd.read_csv(gt_csv_path)
 
     query_name = config_gt.query_name_from_path(
         config_gt.QUERY_SQL_PATH
@@ -403,22 +420,41 @@ def run(results_dir):
     # Basic stats
     # =====================================================
 
-    runtime_col = "runtime_mean" if "runtime_mean" in df.columns else None
+    runtime_col = (
+        "runtime_mean"
+        if "runtime_mean" in points_df.columns
+        else None
+    )
 
-    max_rt   = df[runtime_col].max()   if runtime_col else np.nan
-    mean_rt  = df[runtime_col].mean()  if runtime_col else np.nan
-    min_rt   = df[runtime_col].min()   if runtime_col else np.nan
-    total_rt = df[runtime_col].sum()   if runtime_col else np.nan
+    max_rt = (
+        points_df[runtime_col].max()
+        if runtime_col else np.nan
+    )
+
+    mean_rt = (
+        points_df[runtime_col].mean()
+        if runtime_col else np.nan
+    )
+
+    min_rt = (
+        points_df[runtime_col].min()
+        if runtime_col else np.nan
+    )
+
+    total_rt = (
+        points_df[runtime_col].sum()
+        if runtime_col else np.nan
+    )
 
     min_count_rows = (
-        merged["count_rows"].min()
-        if "count_rows" in merged.columns
+        points_df["count_rows"].min()
+        if "count_rows" in points_df.columns
         else np.nan
     )
 
     max_count_rows = (
-        merged["count_rows"].max()
-        if "count_rows" in merged.columns
+        points_df["count_rows"].max()
+        if "count_rows" in points_df.columns
         else np.nan
     )
 
@@ -442,8 +478,8 @@ def run(results_dir):
     )
 
     unique_hashes = int(
-        merged["plan_hash"].nunique(dropna=True)
-    ) if "plan_hash" in merged.columns else 0
+        points_df["plan_hash"].nunique(dropna=True)
+    ) if "plan_hash" in points_df.columns else 0
 
     # =====================================================
     # Top 1% / Top 10%
