@@ -3,6 +3,7 @@
 # =========================================================
 from pathlib import Path
 import os
+from tpch_query_parser import TPCHQueryParser
 
 # =========================================================
 # 1. Database Configs
@@ -194,6 +195,12 @@ TRACES_DIR=None
 RESULTS_FILENAME = "ground_truth.csv"
 METADATA_FILENAME = "gt_metadata.json"
 
+def get_main_dir(resolution):
+
+    return Path(
+        f"gt_results_sf{SF}_{resolution}{RUN_SUFFIX}"
+    )
+
 def set_main_dir(resolution):
     global MAIN_DIR
 
@@ -201,7 +208,7 @@ def set_main_dir(resolution):
         f"gt_results_sf{SF}_{resolution}{RUN_SUFFIX}"
     )
 
-def get_method_dir(method):
+def get_method_dir(method, resolution):
     if MAIN_DIR is None:
         raise RuntimeError(
             "MAIN_DIR not initialized. "
@@ -209,22 +216,61 @@ def get_method_dir(method):
         )
 
     return (
-        MAIN_DIR
+        get_main_dir(resolution)
         / QUERY_DIR
         / method
     )
 
-def set_method_paths(method):
+def set_method_paths(method, resolution):
     global RESULTS_DIR
     global PLANS_DIR
     global PLAN_TREES_DIR
     global TRACES_DIR
 
-    RESULTS_DIR=get_method_dir(method)
+    RESULTS_DIR=get_method_dir(method, resolution)
     PLANS_DIR=RESULTS_DIR/"plans"
     PLAN_TREES_DIR=(RESULTS_DIR/"plan_trees")
     TRACES_DIR=(RESULTS_DIR/"traces")
 
+def get_num_dimensions(query_name):
+
+    sql_path = (
+        Path(__file__).resolve().parent
+        / "tpch"
+        / "queries"
+        / f"{query_name}.sql"
+    )
+
+    with open(sql_path) as f:
+        sql_text = f.read()
+
+    parser = TPCHQueryParser()
+    parsed = parser.parse(sql_text)
+    return len(parsed["parameters"])
+
+def get_query_resolution(query_name, method):
+
+    from tpch_query_parser import TPCHQueryParser
+
+    sql_path = (
+        Path(__file__).resolve().parent
+        / "tpch"
+        / "queries"
+        / f"{query_name}.sql"
+    )
+
+    with open(sql_path) as f:
+        sql_text = f.read()
+
+    parser = TPCHQueryParser()
+    parsed = parser.parse(sql_text)
+
+    ndim = len(parsed["parameters"])
+
+    return get_resolution_string(
+        method,
+        ndim
+    )
 
 # =========================================================
 # 7. Other Configs and Constraints

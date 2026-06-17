@@ -96,10 +96,13 @@ def run_query(query_name):
 
     start=time.time()
 
+    RES_STR = config_gt.get_query_resolution(query_name, config_gt.RUN_METHODS[0])
+
     query_dir = (
-        config_gt.MAIN_DIR
-        / f"{query_name}"
+        config_gt.get_main_dir(RES_STR)
+        / query_name
     )
+
 
     query_dir.mkdir(
         parents=True,
@@ -427,5 +430,5 @@ if __name__=="__main__":
 
     print()
     print(
-        f"WHOLE RUN SUMMARISED at {config_gt.MAIN_DIR}/summaries"
+        f"WHOLE RUN SUMMARISED at gt_results_sf*/summaries"
     )

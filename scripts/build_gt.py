@@ -1133,7 +1133,7 @@ for CURRENT_METHOD in METHODS_TO_RUN:
     )
 
     config_gt.set_main_dir(RES_STR)
-    config_gt.set_method_paths(CURRENT_METHOD)
+    config_gt.set_method_paths(CURRENT_METHOD, RES_STR)
 
     config_gt.ensure_paths()
 
@@ -2536,7 +2536,7 @@ for processor in config_gt.GLOBAL_PROCESSORS:
 
     run_processor(
         processor, "global_processors",
-        config_gt.MAIN_DIR / config_gt.QUERY_DIR,
+        config_gt.get_main_dir(resolution) / config_gt.QUERY_DIR,
     )
     
 
