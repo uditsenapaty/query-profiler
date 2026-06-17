@@ -221,13 +221,7 @@ def run(query_dir):
 # ======================================
 # standalone
 # ======================================
-RES_STR = config_gt.get_resolution_string(
-    "m0",
-    1
-)
 
 if __name__=="__main__":
 
-    run(
-        config_gt.get_main_dir(RES_STR) / config_gt.QUERY_DIR
-    )
+    run()

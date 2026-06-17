@@ -25,7 +25,7 @@ PLAN_HASH_METHOD = "structural_hash_sha256"
 
 # Parallellism Support for Query runs
 SYSTEM_WORKERS = 1 # MIN 1 
-QUERY_WORKERS = 0 # MIN 0 / DEFAULT 2
+QUERY_WORKERS = 2 # MIN 0 / DEFAULT 2
 
 # =========================================================
 # 2. SQL source 

@@ -2536,7 +2536,8 @@ for processor in config_gt.GLOBAL_PROCESSORS:
 
     run_processor(
         processor, "global_processors",
-        config_gt.get_main_dir(resolution) / config_gt.QUERY_DIR,
+        #config_gt.get_main_dir(resolution) / config_gt.QUERY_DIR,
+        config_gt.RESULTS_DIR.parent,
     )
     
 
