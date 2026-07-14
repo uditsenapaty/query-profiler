@@ -14,3 +14,10 @@ picasso_py
 myenv
 .claude
 CLAUDE.md
+
+# decks + generated image assets (not source)
+*.pptx
+bo_ppt_assets
+boundary_fig
+preview
+preview_boundary
