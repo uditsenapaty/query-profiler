@@ -30,7 +30,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 # CONFIG
 # =========================================================
 
-ROOT_DIR      = "gt_results_sf1_10x10_s1q0/qt5/m2/interpolation_results"
+ROOT_DIR      = "gt_results_sf1_10x10_s1q2/qt5/m0/interpolation_results"
 SORT_BY       = "QERR_MEDIAN_UNSEEN"   # primary ranking column
 TOP_K_PERCENT = 0.10                   # fraction for S_topk
 

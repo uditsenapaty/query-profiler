@@ -309,7 +309,7 @@ def run(results_dir):
     edge_csv_path = (
         results_dir
         / "qerr_sorted"
-        / "qerr_desc.csv"
+        / "qerr_desc_nc.csv"
     )
 
     point_csv_path = (
@@ -330,6 +330,10 @@ def run(results_dir):
 
     # point table
     points_df = pd.read_csv(point_csv_path)
+
+    # nc: drop zero predicate-surviving cardinality points
+    if "count_rows" in points_df.columns:
+        points_df = points_df[points_df["count_rows"] != 0].copy()
 
     print()
     print("=" * 60)
@@ -637,7 +641,7 @@ def run(results_dir):
     # Save
     # =====================================================
 
-    out_csv = results_dir / "summary.csv"
+    out_csv = results_dir / "summary_nc.csv"
     summary_df.to_csv(out_csv, index=False)
 
     print()

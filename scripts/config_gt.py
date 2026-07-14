@@ -25,14 +25,15 @@ PLAN_HASH_METHOD = "structural_hash_sha256"
 
 # Parallellism Support for Query runs
 SYSTEM_WORKERS = 1 # MIN 1 
-QUERY_WORKERS = 2 # MIN 0 / DEFAULT 2
+QUERY_WORKERS = 0 # MIN 0 / DEFAULT 2
+MIN_ADJUSTMENT = False # True/False
 
 # =========================================================
 # 2. SQL source 
 # =========================================================
 
 # Input if run for 1 QUERY ONLY using "build_gt.py"!!
-QUERY="mqt8"
+QUERY="qt5"
 # OPTIONAL : For MULTIPLE QUERY runs together use : "run_multi_gt.py"!!
 QUERIES=[
     "qt5",
@@ -199,6 +200,7 @@ def get_main_dir(resolution):
 
     return Path(
         f"gt_results_sf{SF}_{resolution}{RUN_SUFFIX}"
+        + ("_ma" if MIN_ADJUSTMENT else "")
     )
 
 def set_main_dir(resolution):
@@ -206,6 +208,7 @@ def set_main_dir(resolution):
 
     MAIN_DIR = Path(
         f"gt_results_sf{SF}_{resolution}{RUN_SUFFIX}"
+        + ("_ma" if MIN_ADJUSTMENT else "")
     )
 
 def get_method_dir(method, resolution):
@@ -294,21 +297,36 @@ PER_METHOD_PROCESSORS=[
     "grid_qerr",
     "grid_selectivity",
     "qerr_desc",
+    "qerr_desc_nc",
     "summarise",
+    "summarise_nc",
     "qerr_threshold_curves",
     # "neighbor_analysis",
     # "qerr_stats",
     # "plan_summary",
 ]
 
-# Runs ONCE after ALL methods
-GLOBAL_PROCESSORS=[
+# Runs ONCE after ALL methods of a query — operates on the QUERY dir.
+# (these live in scripts/per_query_processors/, invoked by build_gt.py)
+PER_QUERY_PROCESSORS=[
     "compare_sampling_grid",
     "compare_sampling_grid_nb",
     "summary_global",
+    "summary_global_nc",
     # "compare_methods",
     # "merge_all",
     # "build_dashboard",
+]
+
+# Runs ONCE at the very END of a whole multi-query run — operates on the gt-root.
+# (these live in scripts/global_processors/, invoked by run_multi_gt.py)
+RUN_GLOBAL_PROCESSORS = True
+GLOBAL_PROCESSORS=[
+    "summary_all",
+    "summary_all_nc",
+    "excel_summary_all_nc",
+    "excel_qerr_desc_nc",
+    "excel_qerr_desc_by_method_nc",
 ]
 
 # ===========================================================

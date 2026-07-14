@@ -985,12 +985,22 @@ def compute_axis_plan_changes(plan_grid):
         slicer_curr[axis] = slice(1, None)
         slicer_prev[axis] = slice(0, -1)
 
-        curr = plan_grid[tuple(slicer_curr)]
-        prev = plan_grid[tuple(slicer_prev)]
+        # x-1, x
+        # curr = plan_grid[tuple(slicer_curr)]  # x
+        # prev = plan_grid[tuple(slicer_prev)]  # x-1
 
-        diff = curr != prev
+        # diff = curr != prev
 
-        mask[tuple(slicer_curr)] = diff
+        # mask[tuple(slicer_curr)] = diff
+
+        # x, x+1
+        curr = plan_grid[tuple(slicer_prev)]   # x
+        next_ = plan_grid[tuple(slicer_curr)]  # x+1
+
+        diff = curr != next_
+
+        mask[tuple(slicer_prev)] = diff
+
 
         masks.append(mask)
 
@@ -1018,15 +1028,28 @@ def compute_axis_qerrors(runtime_grid):
         slicer_curr[axis] = slice(1, None)
         slicer_prev[axis] = slice(0, -1)
 
-        curr = runtime_grid[tuple(slicer_curr)]
-        prev = runtime_grid[tuple(slicer_prev)]
+        # x-1, x
+        # curr = runtime_grid[tuple(slicer_curr)]
+        # prev = runtime_grid[tuple(slicer_prev)]
+
+        # q = np.maximum(
+        #     curr / np.maximum(prev, 1e-9), # x-1
+        #     prev / np.maximum(curr, 1e-9)  # x
+        # )
+
+        # qmap[tuple(slicer_curr)] = q
+
+        # x, x+1
+        curr = runtime_grid[tuple(slicer_prev)]   # x
+        next = runtime_grid[tuple(slicer_curr)]   # x+1
 
         q = np.maximum(
-            curr / np.maximum(prev, 1e-9),
-            prev / np.maximum(curr, 1e-9)
+            curr / np.maximum(next, 1e-9),
+            next / np.maximum(curr, 1e-9)
         )
 
-        qmap[tuple(slicer_curr)] = q
+        qmap[tuple(slicer_prev)] = q
+
 
         qerr_maps.append(qmap)
 
@@ -1293,10 +1316,15 @@ for CURRENT_METHOD in METHODS_TO_RUN:
         count_cur.execute(query)
         return count_cur.fetchone()[0]
 
-    boundary_sels, boundary_count = find_min_positive_point_nd(
-        card_fn,
-        ndim=len(param_columns)
-    )
+    if config_gt.MIN_ADJUSTMENT:
+        boundary_sels, boundary_count = find_min_positive_point_nd(
+            card_fn,
+            ndim=len(param_columns)
+        )
+    else:
+        # initial min point at 0 selectivity as usual
+        boundary_sels = [0.0] * len(param_columns)
+        boundary_count = card_fn(boundary_sels)
 
     axis_lower_bounds = {}
     for d, param in enumerate(param_columns):
@@ -1310,6 +1338,7 @@ for CURRENT_METHOD in METHODS_TO_RUN:
     print("="*70)
     print("ADJUSTMENT TO ENSURE NON-ZERO JOINT CARDINALITY AT INITIAL BOUNDARY POINTS")
     print("="*70)
+    print("MIN_ADJUSTMENT:", "ON" if config_gt.MIN_ADJUSTMENT else False)
     print("initial_axes_sels:", boundary_sels)
     print("initial_point_count_rows:", boundary_count)
     print("initial_axis_lower_bounds:", axis_lower_bounds)
@@ -2182,10 +2211,18 @@ for CURRENT_METHOD in METHODS_TO_RUN:
         )
 
         # copy neighboring coordinate point
+        # x-1, x
+        # neighbor_grid[
+        #     tuple(slicer_curr)
+        # ] = coords[
+        #     tuple(slicer_prev)
+        # ]
+
+        # x, x+1
         neighbor_grid[
-            tuple(slicer_curr)
-        ] = coords[
             tuple(slicer_prev)
+        ] = coords[
+            tuple(slicer_curr)
         ]
 
         # save each coordinate separately
@@ -2519,7 +2556,7 @@ for CURRENT_METHOD in METHODS_TO_RUN:
     print("=================================================\n")
 
 # ==================================================
-# Global processors
+# Per-query processors
 # ==================================================
 
 print()
@@ -2527,15 +2564,15 @@ print("="*70)
 print("ALL METHODS COMPLETE")
 print("="*70)
 
-for processor in config_gt.GLOBAL_PROCESSORS:
+for processor in config_gt.PER_QUERY_PROCESSORS:
 
     print(
-        f"Running global processor:"
+        f"Running per-query processor:"
         f"{processor}"
     )
 
     run_processor(
-        processor, "global_processors",
+        processor, "per_query_processors",
         #config_gt.get_main_dir(resolution) / config_gt.QUERY_DIR,
         config_gt.RESULTS_DIR.parent,
     )

@@ -12,8 +12,7 @@ from pathlib import Path
 import subprocess
 import time
 import os
-
-import summary_all
+import importlib.util
 
 import config_gt
 
@@ -279,6 +278,45 @@ def run_query(query_name):
 
 
 # ======================================
+# Global processors (run once at end)
+# ======================================
+
+def run_global_processor(name, arg):
+    """Load scripts/global_processors/{name}.py by path and call run(arg)."""
+    path = (
+        Path(__file__).resolve().parent
+        / "global_processors"
+        / f"{name}.py"
+    )
+    if not path.exists():
+        print(f"[WARN] global processor not found: {path}")
+        return
+
+    spec = importlib.util.spec_from_file_location(name, path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+
+    if hasattr(module, "run"):
+        module.run(arg)
+    else:
+        print(f"[WARN] {name}.py has no run()")
+
+
+def gt_roots_for_run():
+    """The distinct gt-root dirs produced by this run's queries/methods."""
+    seen = set()
+    roots = []
+    for q in config_gt.QUERIES:
+        for m in config_gt.RUN_METHODS:
+            res = config_gt.get_query_resolution(q, m)
+            root = config_gt.get_main_dir(res)
+            if str(root) not in seen:
+                seen.add(str(root))
+                roots.append(root)
+    return roots
+
+
+# ======================================
 # Main
 # ======================================
 
@@ -423,12 +461,21 @@ if __name__=="__main__":
 
     print()
     print("=" * 70)
-    print("SUMMARISING WHOLE RUN")
+    print("GLOBAL PROCESSORS — SUMMARISING WHOLE RUN")
     print("=" * 70)
 
-    summary_all.run(Path.cwd())
+    if not config_gt.RUN_GLOBAL_PROCESSORS:
+        print("Skipped (config_gt.RUN_GLOBAL_PROCESSORS = False)")
+    elif not config_gt.GLOBAL_PROCESSORS:
+        print("Skipped (config_gt.GLOBAL_PROCESSORS is empty)")
+    else:
+        roots = [r for r in gt_roots_for_run() if r.exists()]
+        if not roots:
+            print("No gt-root dirs found for this run.")
+        for name in config_gt.GLOBAL_PROCESSORS:
+            for root in roots:
+                print(f"\n>>> {name}  @  {root}")
+                run_global_processor(name, root)
 
     print()
-    print(
-        f"WHOLE RUN SUMMARISED at gt_results_sf*/summaries"
-    )
+    print("WHOLE RUN SUMMARISED")

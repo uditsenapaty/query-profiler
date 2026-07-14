@@ -3,11 +3,14 @@
 # =========================================================
 
 from pathlib import Path
+import sys
 import json
 
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 try:
     from tpch.utils.comparator import compare, _classify
@@ -856,6 +859,6 @@ def run(results_dir):
 
 if __name__ == "__main__":
 
-    run(
-        "gt_results_sf10_qt5_s/100x100/m2"
-    )
+    import sys
+    path = sys.argv[1] if len(sys.argv) > 1 else "gt_results_sf1_10x10_s1q0/qt8/m0"
+    run(path)

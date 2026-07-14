@@ -23,6 +23,11 @@ PINK = PatternFill(
     fgColor="FFC0CB"
 )
 
+CYAN = PatternFill(
+    fill_type="solid",
+    fgColor="00FFFF"
+)
+
 RED_BORDER = Border(
     left=Side(style="thick", color="FF0000"),
     right=Side(style="thick", color="FF0000"),
@@ -92,6 +97,107 @@ def is_boundary(row, x_cols, bsets):
             return True
 
     return False
+
+
+# ==========================================================
+# zero-row-count detection
+# ==========================================================
+
+def _is_zero(v):
+
+    try:
+        return float(v) == 0.0
+
+    except (TypeError, ValueError):
+        return False
+
+
+def build_count_lookup(df, x_cols):
+
+    if "count_rows" not in df.columns:
+        return {}
+
+    lookup = {}
+
+    for _, r in df.iterrows():
+
+        key = tuple(
+            float(r[c])
+            for c in x_cols
+        )
+
+        lookup[key] = r["count_rows"]
+
+    return lookup
+
+
+def has_zero_count(
+    row,
+    axis,
+    x_cols,
+    count_lookup
+):
+
+    # this cell's own row count
+    if _is_zero(
+        row.get("count_rows")
+    ):
+        return True
+
+    # the neighbour used for this axis' adjacent qerr
+    ncols = [
+        f"x{d}_neighbor_axis{axis}"
+        for d in range(1, len(x_cols) + 1)
+    ]
+
+    if not all(
+        c in row.index
+        for c in ncols
+    ):
+        return False
+
+    raw = [row[c] for c in ncols]
+
+    if any(pd.isna(v) for v in raw):
+        return False
+
+    ncoords = tuple(
+        float(v) for v in raw
+    )
+
+    neigh = count_lookup.get(
+        ncoords
+    )
+
+    return _is_zero(neigh)
+
+
+def pick_fill(
+    row,
+    axis,
+    x_cols,
+    bsets,
+    count_lookup
+):
+
+    # cyan (a zero row count on this cell or its neighbour)
+    # overlays the pink boundary fill when both apply
+    if has_zero_count(
+        row,
+        axis,
+        x_cols,
+        count_lookup
+    ):
+        return CYAN
+
+    if is_boundary(
+        row,
+        x_cols,
+        bsets
+    ):
+        return PINK
+
+    return None
 
 
 # ==========================================================
@@ -171,22 +277,19 @@ def build_layout(
 
 
 # ==========================================================
-# workbook writer
+# per-axis sheet writer
 # ==========================================================
 
-def create_axis_workbook(
+def write_axis_sheet(
 
-    outfile,
+    ws,
     df,
     axis,
     x_cols,
-    bsets
+    bsets,
+    count_lookup
 
 ):
-
-    wb = Workbook()
-
-    ws = wb.active
 
     ndim = len(x_cols)
 
@@ -254,13 +357,17 @@ def create_axis_workbook(
             ):
                 cell.border = RED_BORDER
 
-            if is_boundary(
+            fill = pick_fill(
                 row,
+                axis,
                 x_cols,
-                bsets
-            ):
+                bsets,
+                count_lookup
+            )
 
-                cell.fill = PINK
+            if fill is not None:
+
+                cell.fill = fill
 
             else:
 
@@ -284,8 +391,6 @@ def create_axis_workbook(
 
                 )
             )
-
-        wb.save(outfile)
 
         return
 
@@ -412,13 +517,17 @@ def create_axis_workbook(
                 ):
                     cell.border = RED_BORDER
 
-                if is_boundary(
+                fill = pick_fill(
                     row,
+                    axis,
                     x_cols,
-                    bsets
-                ):
+                    bsets,
+                    count_lookup
+                )
 
-                    cell.fill = PINK
+                if fill is not None:
+
+                    cell.fill = fill
 
                 else:
 
@@ -442,8 +551,6 @@ def create_axis_workbook(
 
             )
         )
-
-    wb.save(outfile)
 
 
 # ==========================================================
@@ -480,15 +587,21 @@ def run(results_dir):
         x_cols
     )
 
-    outdir = (
-        results_dir
-        / "grid_qerr"
+    count_lookup = build_count_lookup(
+        df,
+        x_cols
     )
 
-    outdir.mkdir(
-        parents=True,
-        exist_ok=True
+    outfile = (
+        results_dir
+        / "grid_qerr.xlsx"
     )
+
+    wb = Workbook()
+
+    default_ws = wb.active
+
+    written = 0
 
     for axis in range(
         1,
@@ -502,27 +615,36 @@ def run(results_dir):
         if qcol not in df.columns:
             continue
 
-        create_axis_workbook(
-
-            outdir /
-            f"axis{axis}_qerr.xlsx",
-
-            df,
-
-            axis,
-
-            x_cols,
-
-            bsets
-
+        ws = wb.create_sheet(
+            title=f"axis{axis}"
         )
 
+        write_axis_sheet(
+            ws,
+            df,
+            axis,
+            x_cols,
+            bsets,
+            count_lookup
+        )
+
+        written += 1
+
+    if written == 0:
+        return
+
+    wb.remove(
+        default_ws
+    )
+
+    wb.save(outfile)
+
     print(
-        f"saved: {outdir}"
+        f"saved: {outfile}"
     )
 
 if __name__=="__main__":
 
-    run(
-        "gt_results_sf1_qt8_s/10x10/m3"
-    )
+    import sys
+    path = sys.argv[1] if len(sys.argv) > 1 else "gt_results_sf1_10x10_s1q0/qt8/m0"
+    run(path)

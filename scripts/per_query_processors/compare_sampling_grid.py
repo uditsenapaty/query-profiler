@@ -2,11 +2,14 @@
 # scripts/global_processors/compare_sampling_grid.py
 # =========================================================
 
+import sys
 from pathlib import Path
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.stats import gaussian_kde
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import config_gt
 
 
@@ -224,4 +227,5 @@ def run(query_dir):
 
 if __name__=="__main__":
 
-    run()
+    path = sys.argv[1] if len(sys.argv) > 1 else "gt_results_sf1_10x10_s1q0/qt8"
+    run(path)

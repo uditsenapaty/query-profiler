@@ -127,7 +127,13 @@ def _discover_summaries(base: Path) -> dict:
     """
     index: dict = {}
 
-    for gt_root in sorted(base.iterdir()):
+    # Accept either a base dir to scan, or a single gt_results_* root directly.
+    if _GT_ROOT_RE.match(base.name):
+        candidates = [base]
+    else:
+        candidates = sorted(base.iterdir())
+
+    for gt_root in candidates:
         if not gt_root.is_dir():
             continue
 

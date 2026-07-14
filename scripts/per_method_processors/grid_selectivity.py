@@ -475,3 +475,10 @@ def run(results_dir):
             )
 
     print(f"saved: {outdir}")
+
+
+if __name__ == "__main__":
+
+    import sys
+    path = sys.argv[1] if len(sys.argv) > 1 else "gt_results_sf1_10x10_s1q0/qt8/m0"
+    run(path)

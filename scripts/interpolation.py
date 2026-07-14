@@ -56,8 +56,8 @@ warnings.filterwarnings("ignore")
 # CONFIG
 # =========================================================
 
-GROUND_TRUTH_CSV = "gt_results_sf1_10x10_s1q0/qt5/m2/ground_truth.csv"
-OUTPUT_DIR       = "gt_results_sf1_10x10_s1q0/qt5/m2/interpolation_results"
+GROUND_TRUTH_CSV = "gt_results_sf1_10x10_s1q2/qt5/m0/ground_truth.csv"
+OUTPUT_DIR       = "gt_results_sf1_10x10_s1q2/qt5/m0/interpolation_results"
 
 BUDGET_PERCENT   = 0.10   # 10 % of total pair instances
 TOP_K_PERCENT    = 0.10   # top-k fraction for smoothness_topk
